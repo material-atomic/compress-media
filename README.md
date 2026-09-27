@@ -63,6 +63,9 @@ Next up; not built yet, and details may change.
 - **YouTube chapters.** Chapter timestamps suggested from the subtitles, ready to paste into the video description.
 - **Translate subtitles** into other languages, not only English (for example English → Vietnamese).
 - **Join videos.** Put several clips together into one.
+- **Extract the audio** from a video as MP3, M4A or Opus.
+- **Convert subtitles** between SRT and WebVTT without a video.
+- **Media info** in the web UI and the API: duration, resolution, frame rate, codecs and bitrate before choosing settings (today only `compress-media probe` shows it).
 
 What changed in each release, including upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 

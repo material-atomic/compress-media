@@ -63,6 +63,9 @@ Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đ
 - **Chương cho YouTube.** Gợi ý mốc chương từ phụ đề, dán thẳng vào phần mô tả video.
 - **Dịch phụ đề** sang các ngôn ngữ khác ngoài tiếng Anh (ví dụ Anh → Việt).
 - **Ghép video.** Nối nhiều đoạn thành một video.
+- **Tách âm thanh** khỏi video thành MP3, M4A hoặc Opus.
+- **Chuyển đổi phụ đề** giữa SRT và WebVTT mà không cần video.
+- **Xem thông tin file** trên giao diện web và API: thời lượng, độ phân giải, FPS, codec và bitrate trước khi chọn cài đặt (hiện chỉ có ở lệnh `compress-media probe`).
 
 Những gì thay đổi qua từng phiên bản, kể cả lưu ý khi nâng cấp: [CHANGELOG.md](CHANGELOG.md) (tiếng Anh).
 
