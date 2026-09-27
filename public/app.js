@@ -5,11 +5,20 @@
 // ---------------------------------------------------------------------------
 
 const DEFAULTS = {
-  video: { quality: 'balanced', targetMB: 25, codec: 'h264', encoder: 'cpu', speed: 'medium', resolution: '0', fps: '0', audio: 'keep' },
+  video: {
+    format: 'mp4', quality: 'balanced', targetMB: 25, codec: 'h264', encoder: 'cpu', speed: 'medium',
+    resolution: '0', fps: '0', audio: 'keep', trimStart: '', trimEnd: '',
+  },
   image: { format: 'auto', quality: 78, maxDim: '0', keepMetadata: false },
   audio: { format: 'mp3', bitrate: '128', mono: false },
+  pdf: { quality: 'ebook', grayscale: false },
+  general: { where: 'server' },
 };
 const STORAGE_KEY = 'compress-media:settings';
+
+/** Server capabilities from /api/config (filled in after login). */
+/** @type {Record<string, any>} */
+let config = {};
 
 const settings = structuredClone(DEFAULTS);
 try {
@@ -18,6 +27,8 @@ try {
 } catch { /* ignore */ }
 
 const form = document.getElementById('settings');
+// The settings controls: the form plus the "Compress on" choice above the tabs.
+const settingsPanel = document.querySelector('.settings');
 
 function getSetting(key) {
   const [group, name] = key.split('.');
@@ -27,28 +38,55 @@ function getSetting(key) {
 function setSetting(key, value) {
   const [group, name] = key.split('.');
   settings[group][name] = value;
+  normalizeSettings();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
   syncForm();
 }
 
+/** Keeps combinations valid when one setting changes another's meaning (e.g. codec per container). */
+function normalizeSettings() {
+  const v = settings.video;
+  if (v.format === 'webm' && !['vp9', 'av1'].includes(v.codec)) v.codec = 'vp9';
+  if (v.format === 'mp4' && v.codec === 'vp9') v.codec = 'h264';
+  if (v.format === 'gif' && v.quality === 'target') v.quality = 'balanced';
+  if (config.av1 === false && v.codec === 'av1') v.codec = v.format === 'webm' ? 'vp9' : 'h264';
+  if (config.webm === false && v.format === 'webm') v.format = 'mp4';
+}
+
+/**
+ * data-show="video.format=mp4", "video.format!=gif", "video.codec=h264|h265", joined with "&".
+ * data-requires="<capability>" hides an element the server can't support.
+ */
+/** Capabilities of this browser, next to the server's (`config`). */
+const clientCaps = { webcodecs: typeof LocalCompress !== 'undefined' && LocalCompress.supported };
+
+function visible(el) {
+  const req = el.dataset.requires;
+  if (req && !(config[req] ?? clientCaps[req])) return false;
+  const show = el.dataset.show;
+  if (!show) return true;
+  return show.split('&').every((cond) => {
+    const [, key, op, list] = cond.match(/^([\w.]+)(!?=)(.*)$/);
+    const hit = list.split('|').includes(String(getSetting(key)));
+    return op === '=' ? hit : !hit;
+  });
+}
+
 function syncForm() {
-  for (const seg of form.querySelectorAll('.seg[data-name]')) {
+  for (const seg of settingsPanel.querySelectorAll('.seg[data-name]')) {
     const value = getSetting(seg.dataset.name);
     for (const b of seg.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.value === value));
   }
   for (const el of form.querySelectorAll('[name]')) {
     const value = getSetting(el.name);
     if (el.type === 'checkbox') el.checked = !!value;
-    else el.value = value;
+    else if (el.value !== String(value ?? '')) el.value = value ?? ''; // don't reset the caret while typing
   }
-  for (const el of form.querySelectorAll('[data-show]')) {
-    const [key, value] = el.dataset.show.split('=');
-    el.hidden = String(getSetting(key)) !== value;
-  }
+  for (const el of document.querySelectorAll('[data-show], [data-requires]')) el.hidden = !visible(el);
   document.getElementById('qOut').textContent = settings.image.quality;
 }
 
-form.addEventListener('click', (e) => {
+settingsPanel.addEventListener('click', (e) => {
   const btn = e.target.closest('.seg button');
   if (btn) setSetting(btn.closest('.seg').dataset.name, btn.dataset.value);
 });
@@ -69,17 +107,77 @@ function selectTab(name) {
 
 syncForm();
 
-// Server capabilities: hide the hardware-encoder option where it doesn't exist (Linux, Docker…)
-let config = { hardwareEncoder: false };
-fetch('/api/config')
-  .then((r) => r.json())
-  .then((c) => {
+// Server capabilities: hide options the server can't provide (hardware encoder, AV1, PDF…)
+const HW_NAMES = { videotoolbox: 'VideoToolbox', nvenc: 'NVIDIA', qsv: 'Intel', vaapi: 'VA-API', amf: 'AMD' };
+async function loadConfig() {
+  try {
+    const c = await api('GET', '/api/config');
     config = c;
     document.getElementById('version').textContent = `v${c.version}`;
-    for (const el of document.querySelectorAll('[data-requires]')) el.hidden = !c[el.dataset.requires];
-    if (!c.hardwareEncoder && settings.video.encoder === 'hardware') setSetting('video.encoder', 'cpu');
-  })
-  .catch(() => {});
+    if (!c.hardwareEncoder && settings.video.encoder === 'hardware') settings.video.encoder = 'cpu';
+    normalizeSettings();
+    syncForm();
+    applyHardwareLabel();
+  } catch { /* shown as errors on the rows when used */ }
+}
+function applyHardwareLabel() {
+  const button = document.getElementById('hwButton');
+  if (button && config.hardwareName) button.textContent = `${t('encHardware')} · ${HW_NAMES[config.hardwareName] || config.hardwareName}`;
+}
+document.addEventListener('langchange', applyHardwareLabel);
+
+// ---------------------------------------------------------------------------
+// Login (the server requires one unless AUTH_ENABLED=false)
+// ---------------------------------------------------------------------------
+
+const loginBox = document.getElementById('login');
+const loginForm = document.getElementById('loginForm');
+const loginError = document.getElementById('loginError');
+const logoutButton = document.getElementById('logout');
+
+function showLogin() {
+  if (!loginBox.hidden) return;
+  document.body.classList.add('locked');
+  loginBox.hidden = false;
+  logoutButton.hidden = true;
+  loginForm.elements.namedItem('username').focus();
+}
+
+function unlock(authEnabled) {
+  document.body.classList.remove('locked');
+  loginBox.hidden = true;
+  logoutButton.hidden = !authEnabled;
+  loadConfig();
+}
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  loginError.hidden = true;
+  const form = new FormData(loginForm);
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: form.get('username'), password: form.get('password') }),
+  }).catch(() => null);
+  if (res?.ok) {
+    loginForm.reset();
+    unlock(true);
+    return;
+  }
+  loginError.textContent = !res ? t('uploadInterrupted') : res.status === 429 ? t('tooManyAttempts') : t('wrongLogin');
+  loginError.hidden = false;
+});
+
+logoutButton.addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  showLogin();
+});
+
+(async () => {
+  const session = await fetch('/api/auth/session').then((r) => r.json()).catch(() => ({ enabled: false }));
+  if (session.enabled && !session.authenticated) showLogin();
+  else unlock(session.enabled);
+})();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,11 +187,13 @@ const EXT = {
   image: ['jpg', 'jpeg', 'png', 'webp', 'avif', 'tif', 'tiff', 'heic', 'heif', 'gif', 'bmp'],
   video: ['mov', 'mp4', 'm4v', 'mkv', 'avi', 'webm', 'wmv', 'flv', '3gp', 'mts', 'm2ts', 'ts', 'mpg', 'mpeg', 'ogv'],
   audio: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'oga', 'opus', 'aif', 'aiff', 'caf', 'wma', 'amr'],
+  pdf: ['pdf'],
 };
 
 function detectKind(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   for (const [kind, list] of Object.entries(EXT)) if (list.includes(ext)) return kind;
+  if (file.type === 'application/pdf') return 'pdf';
   const top = (file.type || '').split('/')[0];
   return ['image', 'video', 'audio'].includes(top) ? top : null;
 }
@@ -123,12 +223,14 @@ const AUDIO_FORMATS = { mp3: 'MP3', m4a: 'M4A', opus: 'Opus' };
 function optionsLabel(kind, o) {
   if (!o) return '';
   if (kind === 'video') {
-    const parts = [o.codec === 'h265' ? 'H.265' : 'H.264'];
-    if (config.hardwareEncoder && o.encoder === 'hardware' && o.quality !== 'target') parts.push(t('hardware'));
+    const codecName = { h264: 'H.264', h265: 'H.265', av1: 'AV1', vp9: 'VP9' }[o.codec] || 'H.264';
+    const parts = o.format === 'gif' ? ['GIF'] : o.format === 'webm' ? [`WebM ${codecName}`] : [codecName];
+    if (config.hardwareEncoder && o.encoder === 'hardware' && o.quality !== 'target' && (o.format || 'mp4') === 'mp4') parts.push(t('hardware'));
     parts.push(o.quality === 'target' ? `≈${o.targetMB} MB` : t(QUALITY_KEYS[o.quality] || 'qBalanced'));
     if (Number(o.resolution)) parts.push(`${o.resolution}p`);
     if (Number(o.fps)) parts.push(`${o.fps}fps`);
-    if (o.audio === 'remove') parts.push(t('noAudio'));
+    if (o.audio === 'remove' && o.format !== 'gif') parts.push(t('noAudio'));
+    if (o.trimStart || o.trimEnd) parts.push(`✂ ${o.trimStart || '0'}–${o.trimEnd || t('trimEndPlaceholder')}`);
     return parts.join(' · ');
   }
   if (kind === 'image') {
@@ -136,6 +238,7 @@ function optionsLabel(kind, o) {
     if (Number(o.maxDim)) parts.push(`≤${o.maxDim}px`);
     return parts.join(' · ');
   }
+  if (kind === 'pdf') return `PDF · ${t({ screen: 'pdfScreen', ebook: 'pdfEbook', printer: 'pdfPrinter', prepress: 'pdfPrepress' }[o.quality] || 'pdfEbook')}${o.grayscale ? ` · ${t('grayscaleShort')}` : ''}`;
   return `${AUDIO_FORMATS[o.format] || o.format} · ${o.bitrate} kbps${o.mono ? ' · mono' : ''}`;
 }
 
@@ -157,6 +260,7 @@ async function api(method, url, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) showLogin(); // session expired or logged out elsewhere
   if (!res.ok) throw new HttpError(res.status, data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -215,11 +319,63 @@ function pumpUploads() {
   while (uploading < MAX_UPLOADS && uploadQueue.length) {
     const item = uploadQueue.shift();
     uploading++;
-    upload(item).finally(() => {
+    const inBrowser = item.options.general?.where === 'browser' && clientCaps.webcodecs && !item.forceServer;
+    (inBrowser ? compressLocally(item) : upload(item)).finally(() => {
       uploading--;
       pumpUploads();
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// In-browser compression (local.js): nothing is uploaded; the result is a Blob in this tab
+// ---------------------------------------------------------------------------
+
+async function compressLocally(item) {
+  const controller = new AbortController();
+  item.abortLocal = () => controller.abort();
+  item.status = 'processing';
+  item.local = null;
+  item.job = { id: `local-${Math.random().toString(36).slice(2)}`, local: true, kind: item.kind, progress: 0, inputSize: item.inputSize, startedAt: Date.now() };
+  render(item);
+  try {
+    const out = await LocalCompress.compress(item.file, item.kind, item.options[item.kind], {
+      signal: controller.signal,
+      onProgress: (p) => {
+        const elapsed = (Date.now() - item.job.startedAt) / 1000;
+        Object.assign(item.job, { progress: p, eta: p > 0.02 ? Math.round(elapsed / p - elapsed) : null });
+        render(item);
+      },
+    });
+    if (item.status === 'removed') return;
+    item.local = { blob: out.blob, url: URL.createObjectURL(out.blob) };
+    Object.assign(item.job, {
+      status: 'done', progress: 1, outputSize: out.blob.size, outputName: out.name, outputMime: out.blob.type,
+      options: item.options[item.kind], info: out.info, finishedAt: Date.now(),
+    });
+    item.status = 'done';
+    item.error = null;
+  } catch (err) {
+    if (item.status === 'removed') return;
+    if (controller.signal.aborted) {
+      item.status = 'cancelled';
+    } else if (err instanceof LocalCompress.LocalUnsupported) {
+      // The browser can't do this one: fall back to the server, and say why.
+      item.job = null;
+      item.forceServer = true;
+      item.note = t('fellBack', { reason: err.message });
+      item.status = 'waiting';
+      render(item);
+      return upload(item);
+    } else {
+      item.status = 'error';
+      item.error = err.message || String(err);
+    }
+  } finally {
+    item.abortLocal = null;
+  }
+  render(item);
+  renderSummary();
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +432,7 @@ function putPart(item, url, direct, blob, onProgress) {
     xhr.onload = () => {
       item.xhrs.delete(xhr);
       if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.getResponseHeader('ETag'));
+      if (xhr.status === 401 && !direct) showLogin();
       let msg = '';
       try { msg = JSON.parse(xhr.responseText).error; } catch { /* ignore */ }
       reject(new HttpError(xhr.status, msg || t('uploadFailed', { status: xhr.status })));
@@ -359,8 +516,8 @@ async function upload(item) {
     if (item.status === 'removed') return;
     item.status = 'error';
     item.error = err.message || t('uploadInterrupted');
-    // Network-type failures can be resumed from the parts already on the server.
-    item.resumable = !(err instanceof HttpError) || err.status === 0 || err.status >= 500;
+    // Network-type failures (and an expired login) can be resumed from the parts already stored.
+    item.resumable = !(err instanceof HttpError) || err.status === 0 || err.status === 401 || err.status >= 500;
   }
   render(item);
   renderSummary();
@@ -381,24 +538,40 @@ function applyJob(item, job) {
   item.error = job.error;
 }
 
-// Poll active jobs
+// Poll active jobs — one request for all of them.
 setInterval(async () => {
-  const active = items.filter((i) => i.job && (i.status === 'queued' || i.status === 'processing'));
-  await Promise.all(active.map(async (item) => {
-    try {
-      const job = await api('GET', `/api/jobs/${item.job.id}`);
-      if (item.status === 'removed') return;
-      applyJob(item, job);
-    } catch (err) {
+  // In-browser jobs aren't on the server; they report progress themselves.
+  const active = items.filter((i) => i.job && !i.job.local && (i.status === 'queued' || i.status === 'processing'));
+  if (!active.length) return;
+  let found;
+  try {
+    found = new Map((await api('GET', `/api/jobs?ids=${active.map((i) => i.job.id).join(',')}`)).map((j) => [j.id, j]));
+  } catch (err) {
+    if (err.status === 401) return; // the login form is showing; keep polling after sign-in
+    found = new Map();
+  }
+  for (const item of active) {
+    // The item may have changed while the request was in flight (removed, redone, fallen back).
+    if (item.status === 'removed' || !item.job || item.job.local) continue;
+    const job = found.get(item.job.id);
+    if (job) applyJob(item, job);
+    else {
       item.status = 'error';
       item.error = t('lostConnection');
     }
     render(item);
-  }));
-  if (active.length) renderSummary();
+  }
+  renderSummary();
 }, 800);
 
 async function retry(item) {
+  if (item.job?.local) {
+    // Redo in the browser with the current settings (the file is still here).
+    if (item.local) URL.revokeObjectURL(item.local.url);
+    item.options = snapshotOptions();
+    item.forceServer = false;
+    return compressLocally(item);
+  }
   if (!item.job) return;
   try {
     applyJob(item, await api('POST', `/api/jobs/${item.job.id}/retry`, { options: snapshotOptions() }));
@@ -411,6 +584,7 @@ async function retry(item) {
 }
 
 async function cancel(item) {
+  if (item.abortLocal) return item.abortLocal();
   if (!item.job) return;
   try { applyJob(item, await api('POST', `/api/jobs/${item.job.id}/cancel`)); } catch { /* ignore */ }
   render(item);
@@ -425,7 +599,10 @@ function remove(item) {
   }
   const qi = uploadQueue.indexOf(item);
   if (qi >= 0) uploadQueue.splice(qi, 1);
-  if (item.job) api('DELETE', `/api/jobs/${item.job.id}`).catch(() => {});
+  item.abortLocal?.();
+  if (item.local) URL.revokeObjectURL(item.local.url);
+  if (item.originalUrl) URL.revokeObjectURL(item.originalUrl);
+  if (item.job && !item.job.local) api('DELETE', `/api/jobs/${item.job.id}`).catch(() => {});
   if (item.thumbUrl) URL.revokeObjectURL(item.thumbUrl);
   item.el.remove();
   items.splice(items.indexOf(item), 1);
@@ -461,7 +638,7 @@ function render(item) {
       meta.append(t('queued', { size }));
       break;
     case 'processing': {
-      const parts = [t('compressing', { pct: Math.round((job.progress || 0) * 100) })];
+      const parts = [t(job.local ? 'compressingLocal' : 'compressing', { pct: Math.round((job.progress || 0) * 100) })];
       if (job.speed) parts.push(`${job.speed.toFixed(1)}×`);
       if (job.eta != null && job.progress > 0.02) parts.push(t('remaining', { time: fmtDuration(job.eta) }));
       meta.append(parts.join(' · '));
@@ -477,6 +654,8 @@ function render(item) {
           ? el('span', { class: `badge ${pct >= 10 ? 'good' : 'warn'}` }, `−${pct}%`)
           : el('span', { class: 'badge warn', title: t('keepOriginalTitle') }, `+${Math.abs(pct)}% · ${t('keepOriginalBadge')}`),
         el('span', {}, optionsLabel(item.kind, job.options)),
+        job.local ? el('span', { class: 'badge good' }, t('inBrowser')) : null,
+        item.note ? el('span', { class: 'note' }, item.note) : null,
       );
       if (job.finishedAt && job.startedAt) meta.append(el('span', {}, t('took', { time: fmtDuration((job.finishedAt - job.startedAt) / 1000) })));
       break;
@@ -498,7 +677,7 @@ function render(item) {
   actions.replaceChildren();
   if (item.status === 'done') {
     actions.append(
-      el('a', { class: 'btn small', href: `/api/jobs/${job.id}/file`, download: job.outputName }, t('download')),
+      el('a', { class: 'btn small', href: item.local ? item.local.url : `/api/jobs/${job.id}/file`, download: job.outputName }, t('download')),
       el('button', { type: 'button', class: 'btn ghost small', onclick: () => openPreview(item) }, t('view')),
       el('button', { type: 'button', class: 'btn ghost small', title: t('redoTitle'), onclick: () => retry(item) }, t('redo')),
     );
@@ -550,13 +729,19 @@ function openPreview(item) {
   document.getElementById('previewTitle').textContent = item.name;
   const media = (src) => {
     if (item.kind === 'image') return el('img', { src, alt: '', loading: 'lazy' });
-    if (item.kind === 'video') return el('video', { src, controls: true, preload: 'metadata', playsinline: true });
+    if (item.kind === 'video') {
+      // GIF output from a video is an image.
+      return /\.gif$/i.test(job.outputName || '') && src.includes('/file')
+        ? el('img', { src, alt: '', loading: 'lazy' })
+        : el('video', { src, controls: true, preload: 'metadata', playsinline: true });
+    }
+    if (item.kind === 'pdf') return el('iframe', { src, title: item.name });
     return el('audio', { src, controls: true, preload: 'metadata' });
   };
   const figure = (label, size, src) => el('figure', {}, media(src), el('figcaption', {}, el('span', {}, label), el('b', {}, fmtBytes(size))));
   body.replaceChildren(
-    figure(t('original'), job.inputSize, `/api/jobs/${job.id}/original`),
-    figure(t('compressed'), job.outputSize, `/api/jobs/${job.id}/file?inline=1&v=${job.finishedAt}`),
+    figure(t('original'), job.inputSize, job.local ? (item.originalUrl ??= URL.createObjectURL(item.file)) : `/api/jobs/${job.id}/original`),
+    figure(t('compressed'), job.outputSize, job.local ? item.local.url : `/api/jobs/${job.id}/file?inline=1&v=${job.finishedAt}`),
   );
   dialog.showModal();
 }
@@ -593,14 +778,21 @@ window.addEventListener('paste', (e) => {
   if (files.length) addFiles(files);
 });
 
+// Every finished result in one ZIP, streamed by the server (works with local disk and object storage).
+// Results made in this browser are saved one by one (they are already on this device).
 document.getElementById('downloadAll').addEventListener('click', async () => {
-  // One hidden iframe per file: with object storage the link redirects to another origin, and
-  // successive anchor clicks would then cancel each other instead of downloading in parallel.
-  for (const item of items.filter((i) => i.status === 'done')) {
-    const frame = el('iframe', { src: `/api/jobs/${item.job.id}/file`, hidden: true, title: item.job.outputName });
-    document.body.append(frame);
-    setTimeout(() => frame.remove(), 60_000);
-    await new Promise((r) => setTimeout(r, 300));
+  const done = items.filter((i) => i.status === 'done');
+  const save = (href, name) => {
+    const a = el('a', { href, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+  };
+  const ids = done.filter((i) => !i.job.local).map((i) => i.job.id);
+  if (ids.length) save(`/api/jobs/zip?ids=${ids.join(',')}`, '');
+  for (const item of done.filter((i) => i.job.local)) {
+    await new Promise((r) => setTimeout(r, 250));
+    save(item.local.url, item.job.outputName);
   }
 });
 

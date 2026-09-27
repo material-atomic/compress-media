@@ -7,6 +7,7 @@ compress-media [options] <file|dir>...
 compress-media probe <file>... [--json]
 compress-media info [--json]
 compress-media serve [--port N] [--host H]
+compress-media worker          # queue worker only (QUEUE=redis)
 ```
 
 ### Output options
@@ -21,14 +22,16 @@ compress-media serve [--port N] [--host H]
 | `--json` | off | JSON report on stdout. |
 | `-q, --quiet` | off | No progress or summary on stderr. |
 
-### Video → always MP4
+### Video → MP4, WebM or GIF
 
 | Flag | Values | Default | Notes |
 |---|---|---|---|
-| `--quality` | `high` `balanced` `small` `tiny` | `balanced` | CRF 21/24/28/32 (x264) or 24/27/30/34 (x265) |
-| `--target-mb` | number | — | Overrides `--quality`. Bitrate = size / duration − audio. Always uses the CPU. |
-| `--codec` | `h264` `h265` | `h264` | H.265 is tagged `hvc1` so it plays in QuickTime and Safari. |
-| `--hw` | flag | off | VideoToolbox (macOS). Ignored elsewhere and in target mode. |
+| `--video-format` | `mp4` `webm` `gif` | `mp4` | GIF: animated, no sound, defaults to 480p / 12 fps |
+| `--quality` | `high` `balanced` `small` `tiny` | `balanced` | CRF per codec. For GIF: number of colours. |
+| `--target-mb` | number | — | Overrides `--quality`. Two-pass: bitrate = size / (trimmed) duration − audio. Always uses the CPU. Not for GIF. |
+| `--codec` | mp4: `h264` `h265` `av1` · webm: `vp9` `av1` | `h264` / `vp9` | H.265 is tagged `hvc1` so it plays in QuickTime and Safari. AV1 needs `info` → `av1: true`. |
+| `--hw` | flag | off | Detected hardware encoder (VideoToolbox, NVENC, Quick Sync, VA-API, AMF); MP4 only. Ignored with a note when there's none, and in target mode. |
+| `--start`, `--end` | seconds or `[hh:]mm:ss` | whole video | Trim |
 | `--speed` | `fast` `medium` `slow` | `medium` | x264/x265 preset (`fast` = veryfast) |
 | `--max-res` | number | keep | Caps the **short** side (works for portrait video too). Never upscales. |
 | `--fps` | number | keep | Only applied when the source is faster |
@@ -55,11 +58,19 @@ Animated GIF and WebP stay animated when the output is `gif` or `webp`. JPEG out
 | `--bitrate` | 32 48 64 96 128 160 192 256 | 128 |
 | `--mono` | flag | off |
 
+### PDF (needs Ghostscript)
+
+| Flag | Values | Default |
+|---|---|---|
+| `--pdf-quality` | `screen` (72 dpi) `ebook` (150) `printer` (300) `prepress` | `ebook` |
+| `--grayscale` | flag | off |
+
 ### Supported inputs
 
 - **video:** mov mp4 m4v mkv avi webm wmv flv 3gp mts m2ts ts mpg mpeg ogv
 - **image:** jpg jpeg png webp avif tif tiff heic heif gif bmp
 - **audio:** mp3 wav m4a aac flac ogg oga opus aif aiff caf wma amr
+- **pdf:** pdf
 
 ### JSON report fields
 
@@ -84,6 +95,7 @@ An array with one object per file:
 - **Video:** `duration` (s), `width`, `height`, `fps`, `videoCodec`, `bitrateKbps`, `audioCodec`, `audioChannels`.
 - **Audio:** `duration`, `bitrateKbps`, `audioCodec`, `audioChannels`.
 - **Images:** `format`, `width`, `height`, `animated`, `hasMetadata`.
+- **PDF:** `pages`.
 
 Width and height already account for rotation.
 
@@ -99,10 +111,15 @@ Width and height already account for rotation.
 | `MEDIA_CONCURRENCY`, `IMAGE_CONCURRENCY` | server | Parallel jobs (default 1 / 3) |
 | `UPLOAD_PART_MB`, `UPLOAD_CONCURRENCY`, `UPLOAD_MAX_PARTS` | server | Chunked upload part size (8), parallel parts (4), part cap (10000) |
 | `STORAGE`, `S3_*`, `PUBLIC_URL` | server | `local` or `s3` object storage (browsers upload straight to the bucket) |
+| `AUTH_ENABLED`, `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_TOKEN` | server | Login, on by default |
+| `QUEUE`, `REDIS_URL`, `ROLE` | server | Shared Redis queue; `web`/`worker` processes |
+| `GS_PATH`, `HW_ENCODER` | CLI and server | Ghostscript path; hardware encoder (`auto`/`off`/family) |
 
 ## HTTP API (web UI server)
 
 Use this only when a server is already running, for example on a remote machine or in Docker. For local files, the CLI is simpler.
+
+**Authentication** (on by default): `curl -u "$USER:$PASSWORD"` (HTTP Basic), or `-H "Authorization: Bearer $TOKEN"`. Without it you get `401`. `/api/health` is public.
 
 | Method & path | Body / query | Returns |
 |---|---|---|
@@ -113,9 +130,12 @@ Use this only when a server is already running, for example on a remote machine 
 | `PUT /api/uploads/:id/parts/:n` | raw bytes of part `n` (1-based, exactly `partSize` except the last) | `{ number, etag }`. Only when `direct: false`. |
 | `POST /api/uploads/:id/parts/:n/url` | | `{ url }`. When `direct: true`: PUT the part's bytes to this presigned object-storage URL, with no extra headers. |
 | `GET /api/uploads/:id` | | Same as start, with `received` = part numbers already stored (for resuming) |
-| `POST /api/uploads/:id/complete` | JSON `{ options }` | job |
+| `POST /api/uploads/:id/complete` | JSON `{ options, webhook? }` | job. `webhook` is POSTed `{ event, job }` when the job finishes. |
 | `DELETE /api/uploads/:id` | | `{ ok: true }`. Aborts the upload. |
+| `GET /api/jobs?ids=a,b` | | `[job, …]` (batch status) |
+| `GET /api/jobs/zip?ids=a,b` | | ZIP of every finished result |
 | `GET /api/jobs/:id` | | job |
+| `GET /api/jobs/:id/events` | | Server-Sent Events: `event: job` with the job JSON until it finishes |
 | `POST /api/jobs/:id/cancel` | | job |
 | `POST /api/jobs/:id/retry` | JSON `{ options: { <kind>: {…} } }` | job (re-queued, no re-upload) |
 | `GET /api/jobs/:id/file` | `?inline=1` to view in the browser | the compressed file |
@@ -136,6 +156,10 @@ A job looks like `{ id, kind, name, status: queued|processing|done|error|cancell
 | `--max-res N` | `video.resolution: N` |
 | `--fps N` | `video.fps: N` |
 | `--audio keep\|low\|remove` | `video.audio` |
+| `--video-format mp4\|webm\|gif` | `video.format` |
+| `--start T` / `--end T` | `video.trimStart` / `video.trimEnd` |
+| `--pdf-quality Q` | `pdf.quality` |
+| `--grayscale` | `pdf.grayscale: true` |
 | `--image-format F` | `image.format` |
 | `--image-quality N` | `image.quality` |
 | `--max-dim N` | `image.maxDim` |
@@ -150,9 +174,10 @@ Both snippets below use `S` for the server URL. Set it to the user's server, not
 
 ```bash
 S=${COMPRESS_MEDIA_URL:-http://localhost:4747}
-id=$(curl -sf -F file=@photo.heic -F 'options={"image":{"format":"webp","maxDim":1920}}' $S/api/jobs | jq -r .id)
-while :; do st=$(curl -sf $S/api/jobs/$id | jq -r .status); [ "$st" = queued ] || [ "$st" = processing ] || break; sleep 1; done
-[ "$st" = done ] && curl -sfL -o photo-compressed.webp $S/api/jobs/$id/file || curl -s $S/api/jobs/$id | jq -r .error
+AUTH=(-u "$COMPRESS_MEDIA_USER:$COMPRESS_MEDIA_PASSWORD")   # or: AUTH=(-H "Authorization: Bearer $COMPRESS_MEDIA_TOKEN")
+id=$(curl -sf "${AUTH[@]}" -F file=@photo.heic -F 'options={"image":{"format":"webp","maxDim":1920}}' $S/api/jobs | jq -r .id)
+while :; do st=$(curl -sf "${AUTH[@]}" $S/api/jobs/$id | jq -r .status); [ "$st" = queued ] || [ "$st" = processing ] || break; sleep 1; done
+[ "$st" = done ] && curl -sfL "${AUTH[@]}" -o photo-compressed.webp $S/api/jobs/$id/file || curl -s "${AUTH[@]}" $S/api/jobs/$id | jq -r .error
 ```
 
 ### Large files: chunked upload (use this above ~100 MB, or behind Cloudflare)
@@ -169,14 +194,15 @@ In bash:
 
 ```bash
 S=${COMPRESS_MEDIA_URL:-http://localhost:4747}; F="Screen Recording.mov"; SIZE=$(wc -c < "$F" | tr -d ' ')
-U=$(curl -sf -X POST $S/api/uploads -H 'Content-Type: application/json' -d "{\"name\":\"clip.mov\",\"size\":$SIZE}")
+AUTH=(-u "$COMPRESS_MEDIA_USER:$COMPRESS_MEDIA_PASSWORD")   # server calls only — never on presigned URLs
+U=$(curl -sf "${AUTH[@]}" -X POST $S/api/uploads -H 'Content-Type: application/json' -d "{\"name\":\"clip.mov\",\"size\":$SIZE}")
 ID=$(jq -r .uploadId <<<"$U"); P=$(jq -r .partSize <<<"$U"); N=$(jq -r .partCount <<<"$U"); D=$(jq -r .direct <<<"$U")
 for n in $(seq 1 $N); do
   dd if="$F" of=/tmp/part bs=$P skip=$((n-1)) count=1 2>/dev/null
-  if [ "$D" = true ]; then curl -sf -X PUT -H 'Content-Type:' --data-binary @/tmp/part "$(curl -sf -X POST $S/api/uploads/$ID/parts/$n/url | jq -r .url)"
-  else curl -sf -X PUT -H 'Content-Type: application/octet-stream' --data-binary @/tmp/part $S/api/uploads/$ID/parts/$n; fi >/dev/null
+  if [ "$D" = true ]; then curl -sf -X PUT -H 'Content-Type:' --data-binary @/tmp/part "$(curl -sf "${AUTH[@]}" -X POST $S/api/uploads/$ID/parts/$n/url | jq -r .url)"
+  else curl -sf "${AUTH[@]}" -X PUT -H 'Content-Type: application/octet-stream' --data-binary @/tmp/part $S/api/uploads/$ID/parts/$n; fi >/dev/null
 done
-JOB=$(curl -sf -X POST $S/api/uploads/$ID/complete -H 'Content-Type: application/json' -d '{"options":{"video":{"resolution":1080,"fps":30}}}' | jq -r .id)
+JOB=$(curl -sf "${AUTH[@]}" -X POST $S/api/uploads/$ID/complete -H 'Content-Type: application/json' -d '{"options":{"video":{"resolution":1080,"fps":30}}}' | jq -r .id)
 ```
 
 The repo has a complete client that works for **any** file size (it always uses the chunked upload) and adds retries, polling and download: `examples/compress.sh <file> '<options-json>' <url>`. Prefer it over these snippets when it's available.

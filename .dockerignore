@@ -18,6 +18,7 @@ test-results
 playwright-report
 skills
 *.md
+!THIRD_PARTY_NOTICES.md
 .gitattributes
 .editorconfig
 .nvmrc

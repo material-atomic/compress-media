@@ -1,6 +1,14 @@
 # Configuration
 
-Everything is configured with environment variables, set inline (`PORT=4848 npm start`), with `docker run -e`, or in a **`.env` file**. The server loads `.env` from the folder it starts in (`npm start`, `compress-media serve`), and Docker Compose reads the same file. Real environment variables take precedence over `.env`. [`.env.example`](../.env.example) lists them all. The CLI only reads the [binaries](#binaries) group; everything else applies to the web server (`npm start`, `compress-media serve` or the Docker image).
+Everything is configured with environment variables. You can set them:
+
+- inline: `PORT=4848 npm start`;
+- with `docker run -e`;
+- in a **`.env` file**, which the server loads from the folder it starts in (`npm start`, `compress-media serve`) and which Docker Compose reads too.
+
+Real environment variables take precedence over `.env`. [`.env.example`](../.env.example) lists them all.
+
+The CLI only reads the [binaries](#binaries) group. Everything else applies to the server (`npm start`, `compress-media serve`, `compress-media worker`, or the Docker image).
 
 ## Server
 
@@ -9,16 +17,45 @@ Everything is configured with environment variables, set inline (`PORT=4848 npm 
 | `PORT` | `4747` | HTTP port. The server refuses to start if something already answers on it (IPv4 or IPv6). |
 | `HOST` | `127.0.0.1` | Bind address. `0.0.0.0` accepts connections from other machines. The Docker image sets this for you. |
 | `PUBLIC_URL` | — | The address users open, e.g. `https://media.example.com`. Used to check bucket CORS when `STORAGE=s3`. |
-| `WORK_DIR` | `./tmp` (`/data` in Docker) | Scratch space for uploads and results. Needs room for your largest input plus its output. Only its `uploads/` and `outputs/` subfolders are ever wiped. |
+| `TRUST_PROXY` | — | Set behind a reverse proxy (`1`, `loopback`, or a subnet) so the login rate limit sees real client addresses. Uses Express's `trust proxy` values. |
+| `WORK_DIR` | `./tmp` (`/data` in Docker) | Scratch space for uploads and results, plus `auth.json`. Needs room for your largest input plus its output. Only its `uploads/` and `outputs/` subfolders are ever wiped, and only with `QUEUE=memory`. |
 | `JOB_TTL_HOURS` | `3` | Uploads, results and unfinished uploads are deleted this many hours after they were created. |
-| `MAX_UPLOAD_MB` | `0` | Per-file size limit. `0` means unlimited. Enforced when an upload starts. |
+| `MAX_UPLOAD_MB` | `0` | Per-file size limit. `0` means unlimited. Checked when an upload starts. |
+
+## Login
+
+The web UI and the API require a login **by default**. `/api/health` and the static page stay public.
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUTH_ENABLED` | `true` | `false` turns login off. Only do that on a trusted network or behind a proxy that authenticates. |
+| `AUTH_USERNAME` | `admin` | Username, or an email address. It's compared case-insensitively. `AUTH_EMAIL` works as an alias. |
+| `AUTH_PASSWORD` | generated | The password. If it's not set, a random one is generated, **printed in the startup log**, and saved to `WORK_DIR/auth.json` so it survives restarts. |
+| `AUTH_TOKEN` | — | Optional API token. Scripts send it as `Authorization: Bearer <token>`. HTTP Basic with username and password always works too. |
+| `AUTH_SECRET` | generated | Signs session cookies. It's generated and saved to `auth.json` when unset. Set the same value on every web instance when you run several. |
+| `AUTH_SESSION_HOURS` | `168` | How long a browser session lasts (7 days). |
+
+After 10 wrong passwords from one address within 15 minutes, login is blocked for that address for the rest of the window.
 
 ## Processing
 
 | Variable | Default | Description |
 |---|---|---|
-| `MEDIA_CONCURRENCY` | `1` | Video and audio jobs that run at the same time. One ffmpeg already uses every CPU core, so raise this only on large machines. |
-| `IMAGE_CONCURRENCY` | `3` | Image jobs that run at the same time. |
+| `MEDIA_CONCURRENCY` | `1` | Video, audio and PDF jobs that run at the same time **per worker**. One ffmpeg already uses every CPU core. |
+| `IMAGE_CONCURRENCY` | `3` | Image jobs that run at the same time per worker. |
+| `HW_ENCODER` | `auto` | Hardware video encoder: `auto` detects one, `off` disables it, or name one of `videotoolbox`, `nvenc`, `qsv`, `vaapi`, `amf`. Candidates are verified with a test encode at startup. |
+| `VAAPI_DEVICE` | `/dev/dri/renderD128` | Render node for VA-API (Intel/AMD on Linux). |
+
+## Queue and scaling
+
+| Variable | Default | Description |
+|---|---|---|
+| `QUEUE` | `memory` | `memory` keeps jobs and the queue inside one process. `redis` keeps them in Redis (BullMQ), so several web servers and workers can share them. |
+| `REDIS_URL` | — | Required with `QUEUE=redis`, e.g. `redis://:password@redis:6379/0` (`rediss://` for TLS). |
+| `REDIS_PREFIX` | `cm` | Key prefix, so several deployments can share one Redis. |
+| `ROLE` | `all` | `all` serves HTTP and processes jobs. `web` only serves HTTP. `worker` only processes jobs (same as `compress-media worker`). `web` and `worker` need `QUEUE=redis`. |
+
+With several machines, workers must see the uploaded files. Use `STORAGE=s3`, or a `WORK_DIR` on a shared network volume. See [deployment.md → Scaling out](deployment.md#scaling-out).
 
 ## Uploads
 
@@ -34,7 +71,7 @@ Browsers upload files in parts, several at a time. A part that fails is retried,
 
 | Variable | Default | Description |
 |---|---|---|
-| `STORAGE` | `local` | `local`: parts are sent to this server and kept in `WORK_DIR`. `s3`: browsers upload parts **straight to an S3-compatible bucket** through presigned URLs, and results are served from the bucket. |
+| `STORAGE` | `local` | `local`: parts are sent to this server and kept in `WORK_DIR`. `s3`: browsers upload parts **straight to an S3-compatible bucket** through presigned URLs. Inputs and results live in the bucket, and workers fetch inputs when they process them. |
 
 With `STORAGE=s3`:
 
@@ -43,7 +80,7 @@ With `STORAGE=s3`:
 | `S3_BUCKET` | — | Bucket name. **Required.** |
 | `S3_REGION` | `us-east-1` | Region. Use `auto` for Cloudflare R2. |
 | `S3_ENDPOINT` | AWS | Endpoint of any other S3-compatible provider, e.g. `https://<account>.r2.cloudflarestorage.com`. |
-| `S3_PUBLIC_ENDPOINT` | `S3_ENDPOINT` | Endpoint written into the presigned URLs browsers receive. Set it when browsers reach the storage at a different address than the server does, e.g. `http://minio:9000` inside Docker vs `https://s3.example.com` outside. |
+| `S3_PUBLIC_ENDPOINT` | `S3_ENDPOINT` | Endpoint written into the presigned URLs browsers receive. Set it when browsers reach the storage at a different address than the server does. |
 | `S3_FORCE_PATH_STYLE` | `false` | `true` puts the bucket in the path (`host/bucket/key`). Needed by MinIO, SeaweedFS and most self-hosted stores. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | AWS default chain | Credentials. When unset, the AWS SDK default chain is used (environment, shared config, IAM role). |
 | `S3_PREFIX` | `compress-media/` | Key prefix for every object this app writes (`uploads/…`, `outputs/…`, and a `cors-check` probe). |
@@ -52,12 +89,22 @@ With `STORAGE=s3`:
 
 Provider examples, CORS, lifecycle rules and permissions are in [deployment.md → Object storage](deployment.md#object-storage).
 
+## Webhooks
+
+Jobs can carry a `webhook` URL that's called when they finish. See [api.md → Webhooks](api.md#webhooks).
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEBHOOK_SECRET` | — | Signs every delivery. The signature is sent as `X-Compress-Media-Signature: sha256=<HMAC-SHA256 of the body>`. |
+| `WEBHOOK_ALLOW_PRIVATE` | `false` | Webhook URLs that resolve to private, loopback or link-local addresses are refused, to protect against SSRF. `true` allows them, e.g. for services on the same network. |
+
 ## Binaries
 
 | Variable | Default | Description |
 |---|---|---|
 | `FFMPEG_PATH` | bundled `ffmpeg-static` | Path to ffmpeg. The Docker image uses Alpine's (`/usr/bin/ffmpeg`), which is much faster on ARM. |
 | `FFPROBE_PATH` | bundled `@ffprobe-installer` | Path to ffprobe. |
+| `GS_PATH` | `gs` (`gswin64c` on Windows) | Ghostscript, for PDF compression. The PDF feature is off when it's not found. |
 
 HEIC decoding needs no configuration. It uses `sips` on macOS, or `heif-dec`/`heif-convert` (libheif) when found on `PATH`.
 
@@ -65,13 +112,14 @@ HEIC decoding needs no configuration. It uses `sips` on macOS, or `heif-dec`/`he
 
 | Variable | Default | Description |
 |---|---|---|
-| `COMPRESS_MEDIA_IMAGE` | `runsnip/compress-media:latest` | Image to run. Pin a version, e.g. `runsnip/compress-media:1.1.0`. |
-| `COMPRESS_MEDIA_PORT` | `4747` | Host port to publish (on `127.0.0.1`). |
+| `COMPRESS_MEDIA_IMAGE` | `runsnip/compress-media:latest` | Image to run. Pin a version, e.g. `runsnip/compress-media:2.0.0`. |
+| `COMPRESS_MEDIA_PORT` | `4747` | Host port to publish (on `127.0.0.1`). `PORT` is the port *inside* the container. |
 
 ## Test suite only
 
 | Variable | Description |
 |---|---|
 | `E2E_BASE_URL` | Run the Playwright tests against an already running instance instead of starting one |
+| `E2E_USERNAME`, `E2E_PASSWORD` | Login for that instance (defaults: `e2e@example.com` / `e2e-password`, which the self-started instance uses) |
 | `E2E_PORT` | Port for the instance Playwright starts (default `4790`) |
 | `E2E_JOB_TIMEOUT` | Milliseconds to wait for a compression job in E2E tests (default `90000`; raise it on slow machines) |

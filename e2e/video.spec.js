@@ -91,6 +91,63 @@ test.describe('video', () => {
   });
 });
 
+test.describe('video formats', () => {
+  test.beforeEach(async ({ page }) => open(page));
+
+  test('trims a clip into an animated GIF', async ({ page }, testInfo) => {
+    await pick(page, 'video.format', 'gif');
+    await expect(page.getByRole('button', { name: 'Target MB' })).toBeHidden();
+    await expect(page.getByText('Audio track')).toBeHidden();
+    await page.getByLabel('Start').fill('0.5');
+    await page.getByLabel('End').fill('0:02');
+    await addFiles(page, 'clip.mov');
+
+    const r = row(page, 'clip.mov');
+    await waitDone(r);
+    await expect(r.locator('.meta')).toContainText('GIF');
+    await expect(r.locator('.meta')).toContainText('✂ 0.5–0:02');
+    const out = await download(page, r, testInfo);
+    expect(out.name).toBe('clip-compressed.gif');
+    const { video, format } = probe(out.file);
+    expect(video.codec_name).toBe('gif');
+    expect(video.height).toBe(480);
+    expect(Number(format.duration)).toBeGreaterThan(1.3);
+    expect(Number(format.duration)).toBeLessThan(1.7);
+  });
+
+  test('WebM uses VP9 and Opus', async ({ page }, testInfo) => {
+    const cfg = await (await page.request.get('/api/config')).json();
+    test.skip(!cfg.webm, 'server ffmpeg has no VP9/Opus');
+    await pick(page, 'video.format', 'webm');
+    await expect(page.locator('.seg[data-name="video.codec"] button[data-value="vp9"]').first()).toHaveAttribute('aria-pressed', 'true');
+    await pick(page, 'video.speed', 'veryfast');
+    await page.getByLabel('Max resolution').selectOption('360');
+    await addFiles(page, 'clip.mov');
+
+    const r = row(page, 'clip.mov');
+    await waitDone(r);
+    const out = await download(page, r, testInfo);
+    expect(out.name).toBe('clip-compressed.webm');
+    const { video, audio } = probe(out.file);
+    expect(video.codec_name).toBe('vp9');
+    expect(audio.codec_name).toBe('opus');
+  });
+
+  test('AV1 in MP4 when the server supports it', async ({ page }, testInfo) => {
+    const cfg = await (await page.request.get('/api/config')).json();
+    test.skip(!cfg.av1, 'server ffmpeg has no AV1 encoder');
+    await pick(page, 'video.codec', 'av1');
+    await pick(page, 'video.speed', 'veryfast');
+    await page.getByLabel('Max resolution').selectOption('360');
+    await addFiles(page, 'clip.mov');
+    const r = row(page, 'clip.mov');
+    await waitDone(r);
+    await expect(r.locator('.meta')).toContainText('AV1');
+    const { video } = probe((await download(page, r, testInfo)).file);
+    expect(video.codec_name).toBe('av1');
+  });
+});
+
 test.describe('hardware encoder option', () => {
   for (const hardwareEncoder of [true, false]) {
     test(`is ${hardwareEncoder ? 'shown' : 'hidden'} when the server ${hardwareEncoder ? 'supports' : 'lacks'} it`, async ({ page }) => {
@@ -99,7 +156,7 @@ test.describe('hardware encoder option', () => {
         await route.fulfill({ response: res, json: { ...(await res.json()), hardwareEncoder } });
       });
       await open(page);
-      const option = page.getByRole('button', { name: 'Apple hardware' });
+      const option = page.getByRole('button', { name: /^Hardware/ });
       if (hardwareEncoder) await expect(option).toBeVisible();
       else await expect(option).toBeHidden();
     });

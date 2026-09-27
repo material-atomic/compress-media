@@ -22,24 +22,66 @@
         <p data-i18n="tagline">Video, images and audio — processed on your own machine, never uploaded to the internet.</p>
       </div>
     </div>
-    <div class="lang" role="group" aria-label="Language">
-      <button type="button" data-lang="en">EN</button>
-      <button type="button" data-lang="vi">VI</button>
+    <div class="top-actions">
+      <button type="button" id="logout" class="btn ghost small" hidden data-i18n="signOut">Sign out</button>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="vi">VI</button>
+      </div>
     </div>
   </header>
+
+  <!-- Shown instead of the app when the server requires a login (AUTH_ENABLED, the default) -->
+  <section id="login" class="login" hidden>
+    <form id="loginForm" class="panel login-card">
+      <h2 data-i18n="signInTitle">Sign in</h2>
+      <p class="hint" data-i18n="signInHint">This Compress Media server is private.</p>
+      <label class="field">
+        <span data-i18n="usernameLabel">Username or email</span>
+        <input name="username" autocomplete="username" required />
+      </label>
+      <label class="field">
+        <span data-i18n="passwordLabel">Password</span>
+        <input name="password" type="password" autocomplete="current-password" required />
+      </label>
+      <p id="loginError" class="err" role="alert" hidden></p>
+      <button type="submit" class="btn" data-i18n="signIn">Sign in</button>
+    </form>
+  </section>
 
   <main class="layout">
     <!-- Settings -->
     <aside class="panel settings" data-i18n-aria-label="settingsLabel" aria-label="Compression settings">
+      <!-- Only offered when the browser has WebCodecs (local.js) -->
+      <fieldset class="where" data-requires="webcodecs">
+        <legend data-i18n="whereLabel">Compress on</legend>
+        <div class="seg" data-name="general.where">
+          <button type="button" data-value="server" data-i18n="whereServer">Server</button>
+          <button type="button" data-value="browser" data-i18n="whereBrowser">This browser (beta)</button>
+        </div>
+        <p class="hint" data-show="general.where=browser" data-i18n="whereBrowserHint">Files never leave this device. Uses your CPU/GPU; what the browser can't do (GIF, PDF, HEIC, AVIF, MP3…) still goes to the server.</p>
+      </fieldset>
       <div class="tabs" role="tablist">
         <button role="tab" data-tab="video" aria-selected="true" data-i18n="tabVideo">Video</button>
         <button role="tab" data-tab="image" aria-selected="false" data-i18n="tabImage">Image</button>
         <button role="tab" data-tab="audio" aria-selected="false" data-i18n="tabAudio">Audio</button>
+        <button role="tab" data-tab="pdf" aria-selected="false" data-requires="pdf">PDF</button>
       </div>
 
       <form id="settings" autocomplete="off">
         <!-- VIDEO -->
         <section class="tabpanel" data-panel="video">
+          <fieldset>
+            <legend data-i18n="outputFormat">Output format</legend>
+            <div class="seg" data-name="video.format">
+              <button type="button" data-value="mp4">MP4</button>
+              <button type="button" data-value="webm" data-requires="webm">WebM</button>
+              <button type="button" data-value="gif">GIF</button>
+            </div>
+            <p class="hint" data-show="video.format=webm" data-i18n="webmHint">Open format for the web (VP9 or AV1 + Opus). Plays in every modern browser.</p>
+            <p class="hint" data-show="video.format=gif" data-i18n="gifHint">Animated GIF for docs, issues and chats. No sound; defaults to 480p and 12 fps.</p>
+          </fieldset>
+
           <fieldset>
             <legend data-i18n="quality">Quality</legend>
             <div class="seg" data-name="video.quality">
@@ -47,36 +89,46 @@
               <button type="button" data-value="balanced" data-i18n="qBalanced">Balanced</button>
               <button type="button" data-value="small" data-i18n="qSmall">Small</button>
               <button type="button" data-value="tiny" data-i18n="qTiny">Tiny</button>
-              <button type="button" data-value="target" data-i18n="qTarget">Target MB</button>
+              <button type="button" data-value="target" data-show="video.format!=gif" data-i18n="qTarget">Target MB</button>
             </div>
-            <label class="inline-field" data-show="video.quality=target">
+            <label class="inline-field" data-show="video.quality=target&amp;video.format!=gif">
               <span data-i18n="targetSize">Target size</span>
               <span class="with-unit"><input type="number" name="video.targetMB" min="1" step="1" value="25" /> MB</span>
             </label>
-            <p class="hint" data-show="video.quality=target" data-i18n="targetHint">Handy for upload limits (Gmail 25 MB, Discord 10 MB…). This mode always encodes on the CPU to hit the number.</p>
+            <p class="hint" data-show="video.quality=target&amp;video.format!=gif" data-i18n="targetHint">Handy for upload limits (Gmail 25 MB, Discord 10 MB…). Encodes twice on the CPU to land close to the number.</p>
           </fieldset>
 
-          <fieldset>
+          <fieldset data-show="video.format=mp4">
             <legend data-i18n="codec">Codec</legend>
             <div class="seg" data-name="video.codec">
               <button type="button" data-value="h264">H.264</button>
-              <button type="button" data-value="h265">H.265 / HEVC</button>
+              <button type="button" data-value="h265">H.265</button>
+              <button type="button" data-value="av1" data-requires="av1">AV1</button>
             </div>
             <p class="hint" data-show="video.codec=h264" data-i18n="h264Hint">Plays everywhere (web, Windows, chat apps…).</p>
             <p class="hint" data-show="video.codec=h265" data-i18n="h265Hint">30–50% smaller than H.264 at the same quality. Plays on Apple devices, Android and recent Chrome.</p>
+            <p class="hint" data-show="video.codec=av1" data-i18n="av1Hint">Smallest files (20–30% below H.265), slower to encode. Plays in modern browsers and recent phones.</p>
           </fieldset>
 
-          <fieldset data-requires="hardwareEncoder">
+          <fieldset data-show="video.format=webm">
+            <legend data-i18n="codec">Codec</legend>
+            <div class="seg" data-name="video.codec">
+              <button type="button" data-value="vp9">VP9</button>
+              <button type="button" data-value="av1" data-requires="av1">AV1</button>
+            </div>
+          </fieldset>
+
+          <fieldset data-requires="hardwareEncoder" data-show="video.format=mp4&amp;video.quality!=target">
             <legend data-i18n="encoder">Encoder</legend>
             <div class="seg" data-name="video.encoder">
               <button type="button" data-value="cpu">CPU</button>
-              <button type="button" data-value="hardware" data-i18n="encHardware">Apple hardware</button>
+              <button type="button" data-value="hardware" id="hwButton" data-i18n="encHardware">Hardware</button>
             </div>
             <p class="hint" data-show="video.encoder=cpu" data-i18n="cpuHint">Smallest files, slower.</p>
-            <p class="hint" data-show="video.encoder=hardware" data-i18n="hwHint">Many times faster (VideoToolbox), slightly larger files.</p>
+            <p class="hint" data-show="video.encoder=hardware" data-i18n="hwHint">Many times faster on the GPU, slightly larger files.</p>
           </fieldset>
 
-          <fieldset data-show="video.encoder=cpu">
+          <fieldset data-show="video.encoder!=hardware&amp;video.format!=gif">
             <legend data-i18n="speed">Encoding speed</legend>
             <div class="seg" data-name="video.speed">
               <button type="button" data-value="veryfast" data-i18n="spFast">Fast</button>
@@ -95,6 +147,7 @@
                 <option value="1080">1080p</option>
                 <option value="720">720p</option>
                 <option value="480">480p</option>
+                <option value="360">360p</option>
               </select>
             </label>
             <label class="field">
@@ -105,11 +158,27 @@
                 <option value="30">30</option>
                 <option value="24">24</option>
                 <option value="15">15</option>
+                <option value="10">10</option>
               </select>
             </label>
           </div>
 
           <fieldset>
+            <legend data-i18n="trim">Trim</legend>
+            <div class="grid2">
+              <label class="field compact">
+                <span data-i18n="trimStart">Start</span>
+                <input type="text" name="video.trimStart" inputmode="decimal" placeholder="0:00" autocomplete="off" />
+              </label>
+              <label class="field compact">
+                <span data-i18n="trimEnd">End</span>
+                <input type="text" name="video.trimEnd" inputmode="decimal" data-i18n-placeholder="trimEndPlaceholder" placeholder="end" autocomplete="off" />
+              </label>
+            </div>
+            <p class="hint" data-i18n="trimHint">Seconds or m:ss, e.g. 5 and 1:30. Leave empty to keep the whole video.</p>
+          </fieldset>
+
+          <fieldset data-show="video.format!=gif">
             <legend data-i18n="audioTrack">Audio track</legend>
             <div class="seg" data-name="video.audio">
               <button type="button" data-value="keep" data-i18n="aKeep">Keep</button>
@@ -185,6 +254,26 @@
             <span data-i18n="monoHint">Convert to mono (roughly halves voice recordings)</span>
           </label>
         </section>
+        <!-- PDF (only when the server has Ghostscript) -->
+        <section class="tabpanel" data-panel="pdf" hidden>
+          <fieldset>
+            <legend data-i18n="quality">Quality</legend>
+            <div class="seg" data-name="pdf.quality">
+              <button type="button" data-value="screen" data-i18n="pdfScreen">Smallest</button>
+              <button type="button" data-value="ebook" data-i18n="pdfEbook">Balanced</button>
+              <button type="button" data-value="printer" data-i18n="pdfPrinter">Print</button>
+              <button type="button" data-value="prepress" data-i18n="pdfPrepress">Prepress</button>
+            </div>
+            <p class="hint" data-show="pdf.quality=screen" data-i18n="pdfScreenHint">Images at 72 dpi. Fine on screens, blurry when printed.</p>
+            <p class="hint" data-show="pdf.quality=ebook" data-i18n="pdfEbookHint">Images at 150 dpi. Good for sharing CVs, reports and portfolios.</p>
+            <p class="hint" data-show="pdf.quality=printer" data-i18n="pdfPrinterHint">Images at 300 dpi for printing. Smaller only when images are larger than that.</p>
+            <p class="hint" data-show="pdf.quality=prepress" data-i18n="pdfPrepressHint">Keeps images at print-shop quality; mostly cleans up the file.</p>
+          </fieldset>
+          <label class="check">
+            <input type="checkbox" name="pdf.grayscale" />
+            <span data-i18n="grayscale">Convert to grayscale</span>
+          </label>
+        </section>
       </form>
 
       <p class="foot-hint" data-i18n-html="footHint">Settings apply to newly added files. For finished files, click <b>Redo</b> to apply the current settings.</p>
@@ -194,19 +283,19 @@
     <section class="work">
       <label id="drop" class="drop" tabindex="0">
         <input id="fileInput" type="file" multiple hidden
-          accept="video/*,image/*,audio/*,.mov,.mkv,.heic,.heif,.m4a,.flac,.aiff,.caf,.opus" />
+          accept="video/*,image/*,audio/*,.mov,.mkv,.heic,.heif,.m4a,.flac,.aiff,.caf,.opus,.pdf,application/pdf" />
         <svg class="drop-icon" viewBox="0 0 48 48" aria-hidden="true">
           <path d="M24 31V11m0 0l-8 8m8-8l8 8" />
           <path d="M8 29v6a4 4 0 004 4h24a4 4 0 004-4v-6" />
         </svg>
         <strong data-i18n="dropTitle">Drop files here</strong>
-        <span data-i18n="dropHint">or click to browse · Video (MOV, MP4…), images (JPG, PNG, HEIC, GIF…), audio (M4A, WAV…)</span>
+        <span data-i18n="dropHint">or click to browse · Video (MOV, MP4…), images (JPG, PNG, HEIC, GIF…), audio (M4A, WAV…), PDF</span>
       </label>
 
       <div id="summary" class="summary" hidden>
         <div class="summary-text"></div>
         <div class="summary-actions">
-          <button type="button" class="btn" id="downloadAll" data-i18n="downloadAll">Download all</button>
+          <button type="button" class="btn" id="downloadAll" data-i18n="downloadAll">Download all (ZIP)</button>
           <button type="button" class="btn ghost" id="clearDone" data-i18n="clearList">Clear list</button>
         </div>
       </div>
@@ -242,6 +331,7 @@
   </template>
 
   <script src="i18n.js"></script>
+  <script src="local.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

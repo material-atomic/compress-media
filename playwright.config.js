@@ -44,6 +44,9 @@ module.exports = defineConfig({
           WORK_DIR: path.join(os.tmpdir(), 'compress-media-e2e'),
           // One video job per worker, so parallel tests don't wait on each other's encodes.
           MEDIA_CONCURRENCY: '3',
+          AUTH_ENABLED: 'true',
+          AUTH_USERNAME: process.env.E2E_USERNAME || 'e2e@example.com',
+          AUTH_PASSWORD: process.env.E2E_PASSWORD || 'e2e-password',
         },
       },
 });

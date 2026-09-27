@@ -1,6 +1,6 @@
 ---
 name: compress-media
-description: Shrink video, image and audio files with Compress Media, through its local CLI or a running Compress Media server's HTTP API. Examples are QuickTime/screen recordings (MOV→MP4), photos (JPG/PNG/HEIC→JPEG/WebP/AVIF), animated GIFs and WAV/M4A audio. Use when the user wants files smaller, needs to fit an upload or email limit ("under 25 MB"), wants a screen recording converted to MP4, wants a folder of images optimized for the web, or wants photo GPS/EXIF metadata removed. For installing or operating the server itself, use the compress-media-deploy skill.
+description: Shrink video, image, audio and PDF files with Compress Media, through its local CLI or a running Compress Media server's HTTP API. Examples are QuickTime/screen recordings (MOV→MP4/WebM/GIF, trimmed), photos (JPG/PNG/HEIC→JPEG/WebP/AVIF), WAV/M4A audio and image-heavy PDFs (CVs, portfolios, reports). Use when the user wants files smaller, needs to fit an upload or email limit ("under 25 MB"), wants a clip or GIF cut from a recording, wants images optimized for the web, or wants photo GPS/EXIF metadata removed. For installing or operating the server itself, use the compress-media-deploy skill.
 ---
 
 # compress-media
@@ -28,7 +28,7 @@ If none works, tell the user it isn't installed and point them to the repo READM
 
 ```bash
 compress-media probe <files...> --json   # size, duration, resolution, fps, codecs, per file
-compress-media info --json               # hardwareEncoder (macOS VideoToolbox), heicDecoder
+compress-media info --json               # hardwareEncoder/hardwareName, av1, webm, pdf, heicDecoder
 ```
 
 Use `probe` to choose settings, for example:
@@ -44,7 +44,10 @@ Use `probe` to choose settings, for example:
 | Screen recording / tutorial / slides | `--max-res 1080 --fps 30 --quality small` (static screens compress extremely well) |
 | Must fit a limit (Gmail 25 MB, Discord 10 MB, Slack…) | `--target-mb <limit minus ~5%>` |
 | Smallest file, Apple devices or modern browsers | `--codec h265 --speed slow` |
-| Long video and speed matters (macOS only) | `--hw` (VideoToolbox, several times faster, files slightly larger) |
+| Long video and speed matters | `--hw` if `info` shows a hardware encoder (VideoToolbox, NVENC, Quick Sync, VA-API, AMF): several times faster, files slightly larger |
+| Only part of a video ("the first 30 seconds", "from 1:10 to 2:00") | `--start 1:10 --end 2:00` (seconds or `[hh:]mm:ss`) |
+| A GIF for docs, an issue, a chat | `--video-format gif --start … --end …` (defaults to 480p and 12 fps; keep clips short, since GIFs grow fast) |
+| Smallest video for the web, modern browsers | `--video-format webm --codec av1` if `info` shows `av1`; else `--video-format webm` (VP9) |
 | Keep quality high, just remove waste | `--quality high` |
 | Video without sound | `--audio remove` |
 | Images for a website | `--image-format webp --max-dim 1920` (add `-r -o <dir>` for folders) |
@@ -53,12 +56,15 @@ Use `probe` to choose settings, for example:
 | iPhone HEIC photos | default → becomes JPEG |
 | Voice memo or podcast | `--audio-format opus --bitrate 48 --mono` → a `.ogg` file (use `mp3 --bitrate 64 --mono` if it must be `.mp3`) |
 | Music | `--audio-format m4a --bitrate 128` or higher |
+| PDF to email or upload (CV, portfolio, report) | `--pdf-quality ebook` (150 dpi images); `screen` is smaller but blurry in print; `printer` keeps 300 dpi |
+| Scanned or photo-heavy PDF that needs to be tiny | `--pdf-quality screen`, plus `--grayscale` if colour doesn't matter |
 
 Defaults when the user gives no preference:
 
 - **Video:** H.264, balanced quality, audio kept.
 - **Images:** keep the format, quality 78, strip metadata.
 - **Audio:** MP3 at 128 kbps.
+- **PDF:** `ebook`. PDFs that are mostly text barely shrink, and a result that isn't smaller is reported as `larger`. PDF needs Ghostscript: check `info --json` → `pdf`.
 
 H.264 plays everywhere. Only pick H.265 when the user's audience can play it.
 
@@ -99,7 +105,10 @@ When you report back, give before and after sizes plus the output path, e.g. "1.
 
 ## Using a server instead
 
-When the user gives you a Compress Media server URL (their own instance), compress through its API. Check it first: `curl -s <url>/api/config` should return JSON with a `version`.
+When the user gives you a Compress Media server URL (their own instance), compress through its API.
+
+- **It needs a login.** Ask the user for `AUTH_USERNAME`/`AUTH_PASSWORD`, or an `AUTH_TOKEN`, unless they already gave them. Pass them as `COMPRESS_MEDIA_USER` + `COMPRESS_MEDIA_PASSWORD`, or `COMPRESS_MEDIA_TOKEN`. Never write them into files.
+- **Check the server first:** `curl -s -u user:pass <url>/api/config` should return JSON with a `version`, and it lists what the server can do (`pdf`, `av1`, `webm`, `hardwareEncoder`).
 
 - If the repo is available, use its client **for every file, small or large**: `<repo>/examples/compress.sh <file> '<options-json>' <url>` (bash + curl + jq) or `COMPRESS_MEDIA_URL=<url> node <repo>/examples/compress.mjs <file> '<options-json>'`. It handles chunking, retries, polling and download.
 - Otherwise follow [reference.md → HTTP API](reference.md#http-api-web-ui-server): one request for small files, chunked upload for large ones.
@@ -133,6 +142,9 @@ The API takes option **objects**, not CLI flags. For example, `--max-res 1080 --
 | `… MB is too small for a N-second video` | The target is impossible. Raise `--target-mb`, or trim the video first. |
 | Very slow on Linux ARM | Set `FFMPEG_PATH=/usr/bin/ffmpeg FFPROBE_PATH=/usr/bin/ffprobe` (system ffmpeg), or use Docker. |
 | Docker: `No such file or directory` | The path isn't inside the mounted folder. Run from the file's folder with `-v "$PWD:/work" -w /work`. |
-| API: `415 Unsupported file type` / `413` | Wrong file type, or the server's `MAX_UPLOAD_MB` is lower than the file. |
+| API: `415 Unsupported file type` / `413` | Wrong file type (or a PDF on a server without Ghostscript), or the server's `MAX_UPLOAD_MB` is lower than the file. |
+| API: `401 Authentication required` / `429` | Missing or wrong credentials, or too many failed logins (wait 15 minutes). |
+| `PDF compression needs Ghostscript` | Install it (`brew install ghostscript`, `apt install ghostscript`) or use the Docker image. |
+| `AV1 encoding is not available` | This ffmpeg build lacks an AV1 encoder. Use `--codec h265`, or WebM with VP9. |
 
 The full flag list, the HTTP API of the web UI, and the JSON field reference are in [reference.md](reference.md).

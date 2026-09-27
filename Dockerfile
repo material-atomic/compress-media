@@ -13,15 +13,19 @@ RUN npm ci --omit=dev --ignore-scripts \
 
 # ---- runtime --------------------------------------------------------------
 FROM node:22-alpine
+# Ghostscript (AGPL-3.0) powers PDF compression. Build with --build-arg GHOSTSCRIPT=false to leave it
+# out; the PDF tab then disappears and everything else works. See THIRD_PARTY_NOTICES.md.
+ARG GHOSTSCRIPT=true
 LABEL org.opencontainers.image.title="Compress Media" \
       org.opencontainers.image.description="Self-hosted video, image and audio compressor — web UI, HTTP API and CLI (ffmpeg + sharp)" \
       org.opencontainers.image.vendor="RunSnip" \
       org.opencontainers.image.url="https://runsnip.com" \
       org.opencontainers.image.source="https://github.com/material-atomic/compress-media" \
-      org.opencontainers.image.licenses="MIT"
-# ffmpeg does the video/audio work, libheif-tools provides `heif-dec` for HEIC photos,
-# tini reaps ffmpeg children.
-RUN apk add --no-cache ffmpeg libheif-tools tini
+      org.opencontainers.image.licenses="MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND AGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0"
+# ffmpeg (GPL) does the video/audio work, libheif-tools (LGPL) provides `heif-dec` for HEIC photos,
+# tini reaps child processes. All are run as separate programs, never linked into the app.
+RUN apk add --no-cache ffmpeg libheif-tools tini \
+ && if [ "$GHOSTSCRIPT" = "true" ]; then apk add --no-cache ghostscript; fi
 
 ENV NODE_ENV=production \
     FFMPEG_PATH=/usr/bin/ffmpeg \
@@ -32,7 +36,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json server.js ./
+COPY package.json server.js LICENSE THIRD_PARTY_NOTICES.md ./
 COPY lib ./lib
 COPY bin ./bin
 COPY public ./public

@@ -65,8 +65,10 @@ test.describe('chunked upload', () => {
     await addFiles(page, 'clip.mov');
     await expect.poll(() => (before.get(1) || 0) + (before.get(2) || 0), { timeout: 30_000 }).toBe(2);
 
-    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    // Reload while part 3 is still blocked: unblocking first would let the old page's retry finish
+    // the upload before the reload, leaving nothing to resume.
     await open(page); // reload: the in-memory upload state is gone, localStorage remembers it
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
     const after = trackParts(page);
     await addFiles(page, 'clip.mov');
     await waitDone(row(page, 'clip.mov'));
@@ -75,7 +77,7 @@ test.describe('chunked upload', () => {
     expect(after.get(3)).toBe(1);
   });
 
-  test('removing a row mid-upload aborts it on the server', async ({ page, request }) => {
+  test('removing a row mid-upload aborts it on the server', async ({ page }) => {
     await page.route((url) => /parts\/\d+$|partNumber=\d+/.test(url.href), (route) =>
       route.request().method() === 'PUT' ? new Promise(() => {}) : route.fallback()); // parts hang forever
     const created = page.waitForResponse((res) => res.url().endsWith('/api/uploads') && res.request().method() === 'POST');
@@ -83,6 +85,6 @@ test.describe('chunked upload', () => {
     const { uploadId } = await (await created).json();
 
     await row(page, 'clip.mov').getByRole('button', { name: 'Remove from list' }).click();
-    await expect.poll(async () => (await request.get(`/api/uploads/${uploadId}`)).status()).toBe(404);
+    await expect.poll(async () => (await page.request.get(`/api/uploads/${uploadId}`)).status()).toBe(404);
   });
 });

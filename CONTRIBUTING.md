@@ -7,7 +7,8 @@ Thanks for helping out! Issues and pull requests are welcome. If you use an AI a
 ```bash
 npm install
 npm run dev      # http://localhost:4747, restarts when server.js changes
-npm test         # API smoke tests
+npm run typecheck   # JSDoc types
+npm test         # API, CLI and login tests
 npx playwright install chromium firefox webkit   # once
 npm run test:e2e # browser E2E tests across Chromium, Firefox and WebKit
 ```
@@ -24,6 +25,12 @@ npm test
 PUBLIC_URL=http://127.0.0.1:4790 npx playwright test --project=chromium --workers=1
 ```
 
+To test the shared queue, run a local Redis (`docker run -p 6379:6379 redis:7-alpine`, or `brew install redis`):
+
+```bash
+QUEUE=redis REDIS_URL=redis://localhost:6379 npm test
+```
+
 To check the Docker image:
 
 ```bash
@@ -36,12 +43,16 @@ docker run --rm -v "$PWD/test:/app/test:ro" -e HOST=127.0.0.1 compress-media:loc
 | Path | What it is |
 |---|---|
 | `lib/media.js` | The compression pipeline (ffmpeg, sharp, HEIC, capabilities), shared by the server and the CLI |
-| `lib/storage.js` | Storage backends (`local` disk, `s3` object storage) for chunked uploads and results |
-| `server.js` | Express API: chunked uploads, job queue, downloads |
+| `lib/types.d.ts` | Shared types for JSDoc (options, capabilities, tasks) |
+| `lib/storage.js` | Storage backends (`local` disk, `s3` object storage) for chunked uploads, inputs and results |
+| `lib/jobs.js`, `lib/store.js` | Job lifecycle; memory or Redis/BullMQ records and queue |
+| `lib/auth.js`, `lib/webhook.js` | Login; webhook validation and delivery |
+| `server.js` | Express API: uploads, jobs, ZIP, SSE; web and/or worker role |
 | `bin/cli.js` | The `compress-media` command |
-| `public/` | Web UI: `index.html` (English text + `data-i18n` keys), `app.js`, `i18n.js`, `app.css` |
+| `public/` | Web UI: `index.html` (English text + `data-i18n` keys), `app.js`, `local.js` (in-browser mode), `i18n.js`, `app.css` |
 | `test/smoke.test.js` | HTTP API tests (also run in S3 mode with `STORAGE=s3 …`) |
-| `test/cli.test.js` | CLI tests: flags, JSON report, folders, collisions, exit codes |
+| `test/cli.test.js` | CLI tests: flags, JSON report, folders, collisions, video formats, trim, PDF, exit codes |
+| `test/auth.test.js` | Login: sessions, Basic/bearer, rate limit, generated password |
 | `e2e/*.spec.js` | Playwright browser tests: uploads (retry, resume, reload), settings, downloads (checked with ffprobe/sharp), preview, cancel/redo, i18n, mobile |
 | `e2e/global-setup.js` | Generates sample media into `e2e/.fixtures` (cached) |
 | `examples/` | Ready-to-use API clients (bash, Node) |

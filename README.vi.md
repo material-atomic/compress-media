@@ -7,7 +7,7 @@
 [![Image size](https://img.shields.io/docker/image-size/runsnip/compress-media?sort=semver)](https://hub.docker.com/r/runsnip/compress-media)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện web kéo thả, CLI và HTTP API, dùng ffmpeg và sharp.
+Công cụ tự host để nén **video, ảnh, âm thanh và PDF**. Có giao diện web kéo thả, CLI và HTTP API, dùng ffmpeg, sharp và Ghostscript. Còn có thể nén **ngay trên trình duyệt**, file không rời khỏi thiết bị.
 
 - Ra đời để xử lý các video quay màn hình QuickTime nặng hàng GB: một bản ghi 2880×1800, 60fps thường **nhỏ đi 90–98%**.
 - File được xử lý ngay trên máy hoặc server của bạn.
@@ -17,15 +17,15 @@ Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện 
 
 ## Mục lục
 
-[Tính năng](#tính-năng) · [Sắp có trong 2.0](#sắp-có-trong-20) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
+[Tính năng](#tính-năng) · [Mới trong 2.0](#mới-trong-20) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
 
 ## Tính năng
 
-- **Video** (MOV, MP4, MKV, WebM, AVI…) → MP4.
-  - H.264 (phát được ở mọi nơi) hoặc H.265 (nhỏ hơn 30–50%).
-  - Chọn mức chất lượng có sẵn, hoặc đặt **dung lượng mục tiêu theo MB** khi cần vừa giới hạn upload.
-  - Giảm độ phân giải, giới hạn FPS, giữ / giảm / bỏ âm thanh.
-  - Nén bằng phần cứng **Apple VideoToolbox** trên macOS.
+- **Video** (MOV, MP4, MKV, WebM, AVI…) → MP4, WebM hoặc **GIF** động.
+  - H.264 (phát được ở mọi nơi), H.265 (nhỏ hơn 30–50%), **AV1** (nhỏ hơn nữa), hoặc VP9 trong WebM.
+  - Chọn mức chất lượng có sẵn, hoặc đặt **dung lượng mục tiêu theo MB** khi cần vừa giới hạn upload (mã hóa hai lượt).
+  - **Cắt đoạn** theo thời điểm bắt đầu/kết thúc, giảm độ phân giải, giới hạn FPS, giữ / giảm / bỏ âm thanh.
+  - **Nén bằng phần cứng**: Apple VideoToolbox, NVIDIA NVENC, Intel Quick Sync, VA-API, AMD AMF, tự nhận diện.
 - **Ảnh** (JPG, PNG, WebP, AVIF, **HEIC**, GIF, TIFF).
   - Giữ định dạng cũ, hoặc chuyển sang JPEG, WebP, AVIF, PNG.
   - Chỉnh chất lượng và cạnh dài tối đa.
@@ -33,6 +33,8 @@ Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện 
   - GIF và WebP động vẫn giữ chuyển động.
   - Mặc định xóa metadata EXIF và vị trí GPS.
 - **Âm thanh** (WAV, M4A, FLAC, AIFF, MP3…) → MP3, M4A hoặc Opus. Chọn được bitrate và mono.
+- **PDF** → PDF nhỏ hơn, với các mức ảnh từ 72 đến 300 dpi, có thể chuyển đen trắng (Ghostscript).
+- **Nén trên trình duyệt (beta)**: video, âm thanh và ảnh được nén ngay trên thiết bị người dùng bằng WebCodecs, hoàn toàn không upload. Việc trình duyệt không làm được sẽ tự chuyển sang server.
 - **Upload**
   - File được chia thành các phần 8 MB, gửi song song 4 phần một lúc.
   - Phần nào lỗi thì tự gửi lại. Bị gián đoạn thì tải tiếp được, kể cả sau khi tải lại trang.
@@ -42,12 +44,13 @@ Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện 
   - Hiện tiến độ và thời gian còn lại.
   - Xem trước bản gốc và bản nén cạnh nhau.
   - Nén lại với cài đặt khác mà không cần upload lại.
-  - Hủy giữa chừng, tải tất cả một lần.
+  - Hủy giữa chừng, **tải tất cả thành một file ZIP**.
+- **Đăng nhập có sẵn**, mặc định bật: tên đăng nhập/email và mật khẩu lấy từ biến môi trường, có API token cho script.
+- **Tích hợp**: HTTP API có Server-Sent Events, webhook có chữ ký và xem trạng thái nhiều job một lần.
+- **Mở rộng quy mô**: hàng đợi Redis tùy chọn, với các worker chạy riêng.
 - **Giao diện** tiếng Anh và tiếng Việt, có chế độ sáng và tối, dùng được trên điện thoại.
 
-## Sắp có trong 2.0
-
-Đang phát triển trên nhánh `main`, chưa có trong bản phát hành nào.
+## Mới trong 2.0
 
 - **Đăng nhập có sẵn, mặc định bật.** Đặt tên đăng nhập (hoặc email) và mật khẩu qua `AUTH_USERNAME` / `AUTH_PASSWORD`, hoặc tắt bằng `AUTH_ENABLED=false`. Script đăng nhập bằng HTTP Basic hoặc API token.
 - **Thêm định dạng video**
@@ -82,10 +85,11 @@ Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện 
 **Docker** (mọi hệ điều hành):
 
 ```bash
-docker run -d --name compress-media -p 127.0.0.1:4747:4747 -v compress-media-data:/data runsnip/compress-media
+docker run -d --name compress-media -p 127.0.0.1:4747:4747 -v compress-media-data:/data \
+  -e AUTH_USERNAME=me@example.com -e AUTH_PASSWORD='mat-khau-cua-ban' runsnip/compress-media
 ```
 
-Sau đó mở http://localhost:4747.
+Sau đó mở http://localhost:4747 và đăng nhập. Nếu không đặt `AUTH_PASSWORD`, server tự tạo mật khẩu: xem bằng `docker logs compress-media | grep Login`.
 
 **Docker Compose** (đọc cài đặt từ file `.env`):
 
@@ -101,11 +105,13 @@ npm install
 npm start               # http://localhost:4747
 ```
 
-Không cần cài ffmpeg, `npm install` tự tải về. Nếu cổng 4747 đã có app khác dùng, server sẽ báo lỗi chứ không chen vào. Khi đó chạy `PORT=4848 npm start`.
+Không cần cài ffmpeg, `npm install` tự tải về. Log lúc khởi động in ra thông tin đăng nhập (đặt `AUTH_USERNAME`/`AUTH_PASSWORD` trong `.env`, hoặc `AUTH_ENABLED=false` nếu là máy riêng). Nếu cổng 4747 đã có app khác dùng, server sẽ báo lỗi chứ không chen vào. Khi đó chạy `PORT=4848 npm start`.
+
+Muốn nén PDF khi chạy trực tiếp thì cài Ghostscript (`brew install ghostscript`, `apt install ghostscript`); image Docker đã có sẵn.
 
 ## Giao diện web
 
-1. Chọn cài đặt ở các tab **Video**, **Ảnh**, **Âm thanh**. Trình duyệt sẽ nhớ các cài đặt này.
+1. Đăng nhập, rồi chọn cài đặt ở các tab **Video**, **Ảnh**, **Âm thanh**, **PDF**. Trình duyệt sẽ nhớ các cài đặt này. Có thể chọn **Nén ở: Trình duyệt này** để file không rời khỏi thiết bị (chỉ chạy qua HTTPS hoặc localhost).
 2. Kéo thả, chọn hoặc dán file vào trang. Nhiều file được xử lý cùng lúc.
 3. Mỗi dòng hiện tiến độ upload và tiến độ nén. Khi xong:
    - **Tải về** để lưu kết quả;
@@ -128,6 +134,8 @@ compress-media clip.mov --target-mb 24                   # vừa file đính kè
 compress-media clip.mov --codec h265 --speed slow        # nhỏ nhất, cho thiết bị Apple / trình duyệt mới
 compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o web
 compress-media memo.m4a --audio-format opus --bitrate 48 --mono
+compress-media demo.mov --start 0:04 --end 0:19 --video-format gif   # GIF để gắn vào issue
+compress-media cv.pdf --pdf-quality ebook                            # CV để gửi email
 compress-media probe clip.mov                             # xem độ phân giải, fps, thời lượng, codec
 compress-media *.mov --json -q > report.json              # báo cáo JSON cho script
 compress-media serve                                      # mở giao diện web
@@ -141,7 +149,7 @@ compress-media serve                                      # mở giao diện web
 
 ## HTTP API
 
-Giao diện web chạy trên một API JSON nhỏ, bạn có thể gọi trực tiếp:
+Giao diện web chạy trên một API JSON nhỏ, bạn có thể gọi trực tiếp. Xác thực bằng HTTP Basic hoặc `Authorization: Bearer $AUTH_TOKEN`:
 
 1. Bắt đầu một lượt upload chia phần.
 2. PUT từng phần, lên server hoặc thẳng lên bucket.
@@ -149,9 +157,10 @@ Giao diện web chạy trên một API JSON nhỏ, bạn có thể gọi trực 
 4. Theo dõi trạng thái job.
 5. Tải kết quả về.
 
-Có sẵn hai client mẫu, đã xử lý việc thử lại và cả hai chế độ lưu trữ:
+Ngoài ra còn có tải nhiều kết quả thành một file ZIP, tiến độ theo thời gian thực qua Server-Sent Events, và webhook có chữ ký khi job xong. Có sẵn hai client mẫu, đã xử lý việc thử lại và cả hai chế độ lưu trữ:
 
 ```bash
+export COMPRESS_MEDIA_USER=me@example.com COMPRESS_MEDIA_PASSWORD=…
 examples/compress.sh "Screen Recording.mov" '{"video":{"resolution":1080,"fps":30}}' http://localhost:4747   # bash + curl + jq
 node examples/compress.mjs photo.heic '{"image":{"format":"webp"}}'                                        # Node.js 20+
 ```
@@ -165,12 +174,15 @@ Mọi thứ cấu hình qua biến môi trường: đặt trực tiếp trên d�
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `PORT` / `HOST` | `4747` / `127.0.0.1` | Cổng và địa chỉ server lắng nghe |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` | `admin` / tự tạo | Đăng nhập (username hoặc email). `AUTH_ENABLED=false` để tắt; `AUTH_TOKEN` để bật API token. |
 | `PUBLIC_URL` | — | Địa chỉ công khai, ví dụ `https://media.example.com` (dùng để kiểm tra CORS của bucket) |
 | `JOB_TTL_HOURS` | `3` | Sau bấy nhiêu giờ thì file bị xóa |
 | `MAX_UPLOAD_MB` | `0` | Giới hạn dung lượng mỗi file (0 = không giới hạn) |
 | `MEDIA_CONCURRENCY` | `1` | Số job video/âm thanh chạy song song |
 | `UPLOAD_PART_MB` / `UPLOAD_CONCURRENCY` | `8` / `4` | Kích thước mỗi phần upload (nên để 5–100) và số phần gửi song song |
 | `STORAGE` | `local` | `local` (ổ đĩa) hoặc `s3` (lưu trữ đối tượng) |
+| `QUEUE` / `REDIS_URL` / `ROLE` | `memory` / — / `all` | Hàng đợi Redis dùng chung, và các process `web` / `worker` để mở rộng quy mô |
+| `HW_ENCODER` | `auto` | `off`, hoặc chỉ định `videotoolbox` / `nvenc` / `qsv` / `vaapi` / `amf` |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | — | Thông tin kho lưu trữ S3 |
 
 Danh sách đầy đủ: **[docs/configuration.md](docs/configuration.md)**. File mẫu có chú thích: [`.env.example`](.env.example).
@@ -194,6 +206,8 @@ S3_SETUP_CORS=true        # tự thêm quy tắc CORS mà trình duyệt cần (
 
 Thử ngay trên máy với một server S3 đi kèm: `docker compose -f docker-compose.s3.yml up -d`.
 
+**Nhiều máy:** với `QUEUE=redis`, bao nhiêu web server và worker cũng dùng chung một hàng đợi. `docker compose -f docker-compose.scale.yml up -d` khởi động 1 web server, 2 worker và Redis. Xem [deployment.md → Scaling out](docs/deployment.md#scaling-out).
+
 Trong **[docs/deployment.md](docs/deployment.md)** có:
 - cấu hình cho từng nhà cung cấp;
 - quy tắc CORS và quy tắc lifecycle;
@@ -207,8 +221,10 @@ Trong **[docs/deployment.md](docs/deployment.md)** có:
 |---|---|---|---|
 | Docker (`amd64`, `arm64`) | ✅ | ✅ | ✅ (Docker Desktop) |
 | `npm start` / CLI | ✅ | ✅ x64 và arm64 | ✅ x64 |
-| Nén bằng phần cứng | ✅ VideoToolbox | — | — |
+| Nén bằng phần cứng | ✅ VideoToolbox | NVENC, VA-API, Quick Sync (tự nhận diện) | NVENC, Quick Sync, AMF (tự nhận diện) |
 | Ảnh HEIC | ✅ có sẵn | cài `libheif-examples` / `libheif-tools` | dùng Docker |
+| PDF | cài Ghostscript | cài `ghostscript` | cài Ghostscript, hoặc dùng Docker |
+| Nén trên trình duyệt | Chrome, Edge, Firefox, Safari (qua HTTPS hoặc localhost; codec tùy trình duyệt, phần thiếu do server làm) | | |
 
 Trên Linux ARM (Raspberry Pi, server ARM), nên trỏ `FFMPEG_PATH`/`FFPROBE_PATH` tới ffmpeg của hệ điều hành, vì bản đi kèm qua npm chạy chậm hơn nhiều. Image Docker đã làm sẵn việc này.
 
@@ -222,6 +238,8 @@ Trên Linux ARM (Raspberry Pi, server ARM), nên trỏ `FFMPEG_PATH`/`FFPROBE_PA
 | Video dài, cần nhanh (macOS) | Phần cứng Apple | `--hw` |
 | Ảnh cho website | WebP · tối đa 1920 px | `--image-format webp --max-dim 1920` |
 | Ghi âm giọng nói | Opus · 48 kbps · mono | `--audio-format opus --bitrate 48 --mono` |
+| Đoạn clip cho tài liệu hoặc issue | GIF · cắt đoạn · 480p | `--video-format gif --start 4 --end 19` |
+| PDF CV hoặc portfolio | PDF · Cân bằng | `--pdf-quality ebook` |
 
 ## Dùng với AI agent
 
@@ -243,9 +261,10 @@ Với agent khác, trỏ thẳng tới các file `SKILL.md`. Mỗi skill tự đ
 
 ## Bảo mật
 
-App **không có đăng nhập**. Mặc định server chỉ nghe ở `127.0.0.1`, các file Compose cũng chỉ mở cổng trên `127.0.0.1`. Muốn cho người khác dùng thì đặt app sau reverse proxy có xác thực ([ví dụ](docs/deployment.md#reverse-proxy)).
+**Mặc định phải đăng nhập.** Phiên đăng nhập dùng cookie HttpOnly có chữ ký; script dùng HTTP Basic hoặc token; nhập sai mật khẩu nhiều lần sẽ bị chặn tạm thời. Mặc định server cũng chỉ nghe ở `127.0.0.1`, các file Compose chỉ mở cổng trên `127.0.0.1`. Khi mở ra internet, hãy thêm HTTPS bằng reverse proxy ([ví dụ](docs/deployment.md#reverse-proxy)).
 
 - Tên file upload không bao giờ được dùng làm đường dẫn.
+- Webhook trỏ tới mạng nội bộ bị từ chối mặc định (chống SSRF).
 - Server chỉ xóa hai thư mục `uploads/` và `outputs/` do chính nó tạo ra.
 - Với lưu trữ S3, trình duyệt chỉ nhận URL ký sẵn có hạn ngắn.
 
@@ -254,25 +273,30 @@ Báo lỗ hổng bảo mật một cách riêng tư, xem [SECURITY.md](SECURITY.
 ## Cách hoạt động
 
 ```
-trình duyệt ──các phần──▶ server.js ─────────────┐            (STORAGE=local)
-trình duyệt ──các phần──▶ bucket S3 ◀─ ký URL ── server.js    (STORAGE=s3)
-                                                 ├──▶ hàng đợi job ──▶ lib/media.js ──▶ ffmpeg / sharp
-terminal / agent ──▶ bin/cli.js ─────────────────┘
+trình duyệt ──các phần──▶ server.js (web) ──────────────────┐     (STORAGE=local)
+trình duyệt ──các phần──▶ bucket S3 ◀── ký URL ── server.js │     (STORAGE=s3)
+trình duyệt ── WebCodecs (public/local.js) ── không upload gì      ("Nén ở: Trình duyệt này")
+                     hàng đợi job (bộ nhớ hoặc Redis) ▼
+                 worker ──▶ lib/media.js ──▶ ffmpeg / sharp / Ghostscript
+terminal / agent ──▶ bin/cli.js ──▶ lib/media.js
 ```
 
 | Đường dẫn | Là gì |
 |---|---|
 | [`lib/media.js`](lib/media.js) | Bộ xử lý nén: nhận diện loại file, khả năng của máy (VideoToolbox, HEIC), ffprobe, các encoder |
 | [`lib/storage.js`](lib/storage.js) | Nơi lưu file upload và kết quả (`local` hoặc `s3`) |
-| [`server.js`](server.js) | App Express: upload chia phần, hàng đợi job trong bộ nhớ, tiến độ, hủy / nén lại, dọn dẹp |
+| [`lib/jobs.js`](lib/jobs.js) · [`lib/store.js`](lib/store.js) | Vòng đời job, và nơi lưu job cùng hàng đợi (`memory` hoặc `redis`) |
+| [`lib/auth.js`](lib/auth.js) · [`lib/webhook.js`](lib/webhook.js) | Đăng nhập, và webhook có chữ ký |
+| [`server.js`](server.js) | App Express: upload chia phần, API, ZIP, SSE; chạy như web, worker hoặc cả hai |
 | [`bin/cli.js`](bin/cli.js) | CLI |
-| [`public/`](public) | Giao diện web: HTML/CSS/JS thuần, không cần build (bản dịch trong `i18n.js`) |
+| [`public/`](public) | Giao diện web: HTML/CSS/JS thuần, không cần build (`local.js` = nén trên trình duyệt, `i18n.js` = bản dịch) |
 
 ## Phát triển
 
 ```bash
 npm run dev             # giao diện web, tự khởi động lại khi sửa code
-npm test                # test API và CLI (tự tạo file media mẫu bằng ffmpeg)
+npm run typecheck       # kiểm tra kiểu JSDoc bằng TypeScript (không biên dịch gì)
+npm test                # test API, CLI và đăng nhập (tự tạo file media mẫu bằng ffmpeg)
 npx playwright install chromium firefox webkit   # chạy một lần
 npm run test:e2e        # test trên trình duyệt Chromium, Firefox, WebKit
 ```
@@ -281,6 +305,7 @@ Chạy test ở chế độ lưu trữ S3, với bất kỳ server nào tương 
 
 ```bash
 STORAGE=s3 S3_BUCKET=… S3_ENDPOINT=… S3_FORCE_PATH_STYLE=true S3_ACCESS_KEY_ID=… S3_SECRET_ACCESS_KEY=… npm test
+QUEUE=redis REDIS_URL=redis://localhost:6379 npm test       # chế độ hàng đợi dùng chung
 ```
 
 Xem thêm [CONTRIBUTING.md](CONTRIBUTING.md) và [AGENTS.md](AGENTS.md).
@@ -291,10 +316,15 @@ Xem thêm [CONTRIBUTING.md](CONTRIBUTING.md) và [AGENTS.md](AGENTS.md).
 
 Mã nguồn dùng giấy phép [MIT](LICENSE). Compress Media chạy kèm phần mềm của bên thứ ba, mỗi phần mềm có giấy phép riêng:
 
-- **ffmpeg** chạy như một tiến trình riêng, không được liên kết vào mã nguồn này. Các bản build mà `ffmpeg-static`, `@ffprobe-installer` và Alpine dùng có kèm x264 và x265, nên chúng theo giấy phép GPL. Vì vậy image Docker chứa binary GPL; mã nguồn của chúng có tại [FFmpeg](https://ffmpeg.org) và [Alpine](https://pkgs.alpinelinux.org).
-- **sharp / libvips** theo Apache-2.0 / LGPL-3.0.
-- **libheif** (chỉ có trong image Docker) theo LGPL-3.0.
-- **AWS SDK for JavaScript** theo Apache-2.0.
-- Ở một số quốc gia, việc mã hóa H.264/H.265 có thể phải trả phí bằng sáng chế.
+| Thành phần | Giấy phép | Cách dùng |
+|---|---|---|
+| **FFmpeg** kèm x264/x265 | **GPL** | Chương trình riêng |
+| **Ghostscript** (PDF) | **AGPL-3.0** | Chương trình riêng. Không có trong các image `-nopdf` (`runsnip/compress-media:2.0.0-nopdf`, `latest-nopdf`). |
+| **sharp / libvips** | Apache-2.0 / **LGPL-3.0** | Liên kết động, thay thế được |
+| **libheif** (Docker) | LGPL-3.0 | Chương trình riêng |
+| **Mediabunny** (nén trên trình duyệt) | **MPL-2.0** | Phục vụ nguyên bản, không sửa |
+| AWS SDK, Express, BullMQ, ioredis, yazl… | Apache-2.0 / MIT / ISC / BSD | Thư viện |
+
+Code của bạn dùng Compress Media không bị ảnh hưởng. **Nếu bạn phát hành lại image Docker**, image có chứa binary GPL/AGPL/LGPL và giấy phép của chúng áp dụng cho các binary đó. Xem **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** (tiếng Anh) để biết điều đó nghĩa là gì, lấy mã nguồn ở đâu, và lưu ý về bằng sáng chế H.264/H.265/AAC.
 
 Phát triển bởi [RunSnip](https://runsnip.com).

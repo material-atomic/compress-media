@@ -6,6 +6,11 @@ services:
       # Only reachable from this machine. Use "4747:4747" to expose it on your network.
       - "127.0.0.1:${COMPRESS_MEDIA_PORT:-4747}:4747"
     environment:
+      # Login (on by default). Without AUTH_PASSWORD one is generated: `docker compose logs | grep Login`.
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      AUTH_TOKEN: ${AUTH_TOKEN:-}
       # Hours to keep uploaded and compressed files before they are deleted.
       JOB_TTL_HOURS: ${JOB_TTL_HOURS:-3}
       # Per-file upload limit in MB (0 = unlimited).

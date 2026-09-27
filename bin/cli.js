@@ -19,6 +19,7 @@ Usage:
   compress-media probe <file>... [--json]  show size, duration, resolution, fps and codecs (decide settings first)
   compress-media info [--json]             show detected capabilities (hardware encoder, HEIC support)
   compress-media serve [--port N] [--host H]   start the web UI (default http://127.0.0.1:4747)
+  compress-media worker                    run a queue worker only (needs QUEUE=redis and REDIS_URL)
 
 Output:
   -o, --out-dir <dir>        write results into <dir> (sub-folders are mirrored with -r)
@@ -29,11 +30,14 @@ Output:
       --json                 print a machine-readable JSON report on stdout
   -q, --quiet                no progress output
 
-Video (MOV, MP4, MKV, WebM, AVI… → MP4):
+Video (MOV, MP4, MKV, WebM, AVI… → MP4, WebM or GIF):
+      --video-format <f>     mp4 | webm | gif                          (default: mp4)
       --quality <q>          high | balanced | small | tiny            (default: balanced)
-      --target-mb <n>        aim for a total size of n MB (overrides --quality, always CPU)
-      --codec <c>            h264 (plays everywhere) | h265 (30–50% smaller)  (default: h264)
-      --hw                   Apple VideoToolbox hardware encoder (macOS only; much faster)
+      --target-mb <n>        aim for a total size of n MB (two-pass, overrides --quality, CPU)
+      --codec <c>            mp4: h264 (plays everywhere) | h265 (30–50% smaller) | av1 (smallest)
+                             webm: vp9 | av1                           (default: h264 / vp9)
+      --hw                   hardware encoder: VideoToolbox, NVENC, Quick Sync, VA-API, AMF (see info)
+      --start <t>, --end <t> keep only this part; seconds or [hh:]mm:ss, e.g. --start 5 --end 1:30
       --speed <s>            fast | medium | slow — CPU encoder effort  (default: medium)
       --max-res <n>          cap the short side, e.g. 1080, 720        (default: keep)
       --fps <n>              cap the frame rate, e.g. 30               (default: keep)
@@ -50,6 +54,10 @@ Audio (WAV, M4A, FLAC, AIFF, MP3…):
       --bitrate <kbps>       32 | 48 | 64 | 96 | 128 | 160 | 192 | 256 (default: 128)
       --mono                 downmix to mono
 
+PDF (needs Ghostscript; included in the Docker image):
+      --pdf-quality <q>      screen (72 dpi images) | ebook (150) | printer (300) | prepress  (default: ebook)
+      --grayscale            convert pages to grayscale
+
   -h, --help                 show this help
   -v, --version              show the version
 
@@ -58,11 +66,14 @@ Exit codes: 0 = every file succeeded (or was skipped), 1 = at least one file fai
 Examples:
   compress-media "Screen Recording.mov" --max-res 1080 --fps 30
   compress-media clip.mov --target-mb 25                      # fit an email attachment
+  compress-media demo.mov --start 0:04 --end 0:19 --video-format gif --max-res 480   # a GIF for an issue
   compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o ~/Desktop/web
   compress-media voice.wav --audio-format opus --bitrate 48 --mono
+  compress-media cv.pdf --pdf-quality ebook
   compress-media *.mov --json > report.json
 `;
 
+/** @type {import('node:util').ParseArgsConfig['options']} */
 const OPTIONS = {
   'out-dir': { type: 'string', short: 'o' },
   suffix: { type: 'string', default: '-compressed' },
@@ -74,6 +85,9 @@ const OPTIONS = {
   quality: { type: 'string' },
   'target-mb': { type: 'string' },
   codec: { type: 'string' },
+  'video-format': { type: 'string' },
+  start: { type: 'string' },
+  end: { type: 'string' },
   hw: { type: 'boolean' },
   speed: { type: 'string' },
   'max-res': { type: 'string' },
@@ -86,6 +100,8 @@ const OPTIONS = {
   'audio-format': { type: 'string' },
   bitrate: { type: 'string' },
   mono: { type: 'boolean' },
+  'pdf-quality': { type: 'string' },
+  grayscale: { type: 'boolean' },
   port: { type: 'string' },
   host: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -111,17 +127,30 @@ function positiveNumber(name, value, { max = Infinity } = {}) {
 function buildOptions(v) {
   const targetMB = positiveNumber('target-mb', v['target-mb']);
   const speed = oneOf('speed', v.speed, ['fast', 'medium', 'slow']);
+  const videoFormat = oneOf('video-format', v['video-format'], ['mp4', 'webm', 'gif']) || 'mp4';
+  const codec = oneOf('codec', v.codec, videoFormat === 'webm' ? ['vp9', 'av1'] : ['h264', 'h265', 'av1']);
+  for (const flag of ['start', 'end']) {
+    if (v[flag] !== undefined && Number.isNaN(media.parseTime(v[flag]) ?? NaN)) {
+      throw new UsageError(`--${flag} must be seconds or [hh:]mm:ss (got "${v[flag]}")`);
+    }
+  }
+  if (v.start !== undefined && v.end !== undefined && media.parseTime(v.end) <= media.parseTime(v.start)) {
+    throw new UsageError('--end must be after --start');
+  }
   const bitrate = v.bitrate === undefined ? 128 : Number(oneOf('bitrate', v.bitrate, ['32', '48', '64', '96', '128', '160', '192', '256']));
   return {
     video: {
+      format: videoFormat,
       quality: targetMB ? 'target' : oneOf('quality', v.quality, ['high', 'balanced', 'small', 'tiny']) || 'balanced',
       targetMB,
-      codec: oneOf('codec', v.codec, ['h264', 'h265']) || 'h264',
+      codec: codec || (videoFormat === 'webm' ? 'vp9' : 'h264'),
       encoder: v.hw ? 'hardware' : 'cpu',
       speed: speed === 'fast' ? 'veryfast' : speed || 'medium',
       resolution: positiveNumber('max-res', v['max-res']) || 0,
       fps: positiveNumber('fps', v.fps, { max: 240 }) || 0,
       audio: oneOf('audio', v.audio, ['keep', 'low', 'remove']) || 'keep',
+      trimStart: v.start,
+      trimEnd: v.end,
     },
     image: {
       format: oneOf('image-format', v['image-format'], ['auto', 'jpeg', 'jpg', 'webp', 'avif', 'png'])?.replace('jpg', 'jpeg') || 'auto',
@@ -133,6 +162,10 @@ function buildOptions(v) {
       format: oneOf('audio-format', v['audio-format'], ['mp3', 'm4a', 'opus']) || 'mp3',
       bitrate,
       mono: !!v.mono,
+    },
+    pdf: {
+      quality: oneOf('pdf-quality', v['pdf-quality'], ['screen', 'ebook', 'printer', 'prepress']) || 'ebook',
+      grayscale: !!v.grayscale,
     },
   };
 }
@@ -318,8 +351,9 @@ async function compressOne({ input, outDir, stem }, opts, tmpDir, reporter) {
 
 /** Output extension when it is known up front (image "auto" depends on the decoded input). */
 function predictExt(kind, o) {
-  if (kind === 'video') return 'mp4';
+  if (kind === 'video') return o.format === 'gif' ? 'gif' : o.format === 'webm' ? 'webm' : 'mp4';
   if (kind === 'audio') return { mp3: 'mp3', m4a: 'm4a', opus: 'ogg' }[o.format];
+  if (kind === 'pdf') return 'pdf';
   if (o.format && o.format !== 'auto') return o.format === 'jpeg' ? 'jpg' : o.format;
   return null;
 }
@@ -362,6 +396,7 @@ async function probeFile(file) {
   const size = fs.statSync(file).size;
   if (!kind) return { file, kind: null, size, error: 'Unsupported file type' };
   try {
+    if (kind === 'pdf') return { file, kind, size, pages: await media.pdfPages(file) };
     if (kind === 'image') {
       if (/\.(heic|heif)$/i.test(file)) return { file, kind, size, format: 'heic' };
       const sharp = require('sharp');
@@ -396,6 +431,7 @@ async function cmdProbe(files, json) {
       if (r.bitrateKbps) bits.push(`${r.bitrateKbps} kbps`);
       if (r.audioCodec) bits.push(`audio ${r.audioCodec}${r.audioChannels === 1 ? ' mono' : ''}`);
       if (r.format && r.kind === 'image') bits.push(r.format + (r.animated ? ' (animated)' : ''));
+      if (r.pages) bits.push(`${r.pages} page${r.pages === 1 ? '' : 's'}`);
       if (r.error) bits.push(`error: ${r.error}`);
       console.log(`${path.relative(process.cwd(), r.file) || r.file}: ${bits.join(' · ')}`);
     }
@@ -412,6 +448,11 @@ async function cmdInfo(json) {
     ffmpeg: media.ffmpegPath,
     ffprobe: media.ffprobePath,
     hardwareEncoder: caps.hardwareEncoder,
+    hardwareName: caps.hardwareName,
+    hardwareCodecs: caps.hardwareCodecs,
+    av1: caps.av1,
+    webm: caps.webm,
+    pdf: caps.pdf,
     heicDecoder: caps.heicDecoder,
     formats: media.EXT,
   };
@@ -419,7 +460,9 @@ async function cmdInfo(json) {
   else {
     console.log(`compress-media ${info.version} (${info.platform}, node ${info.node})`);
     console.log(`ffmpeg:            ${info.ffmpeg}`);
-    console.log(`hardware encoder:  ${info.hardwareEncoder ? 'yes (VideoToolbox, use --hw)' : 'no'}`);
+    console.log(`hardware encoder:  ${info.hardwareEncoder ? `${info.hardwareName} (${info.hardwareCodecs.join(', ')}) — use --hw` : 'none (CPU only)'}`);
+    console.log(`AV1 / WebM / GIF:  ${info.av1 ? 'yes' : 'no'} / ${info.webm ? 'yes' : 'no'} / yes`);
+    console.log(`PDF compression:   ${info.pdf ? 'yes (Ghostscript)' : 'no — install Ghostscript or use Docker'}`);
     console.log(`HEIC photos:       ${info.heicDecoder ? `yes (${info.heicDecoder})` : 'no — install libheif or use Docker'}`);
     for (const [kind, exts] of Object.entries(info.formats)) console.log(`${`${kind}:`.padEnd(19)}${exts.join(' ')}`);
   }
@@ -445,6 +488,11 @@ async function main(argv) {
       port: positiveNumber('port', v.port, { max: 65535 }) || Number(process.env.PORT) || 4747,
       host: v.host || process.env.HOST || '127.0.0.1',
     });
+    return 'serving';
+  }
+  if (command === 'worker' && !rest.length) {
+    process.env.ROLE = 'worker'; // read when server.js loads
+    await require('../server').start({ role: 'worker' });
     return 'serving';
   }
   if (!positionals.length) throw new UsageError('No input files. Run `compress-media --help` for usage.');
@@ -504,7 +552,7 @@ function onSignal() {
 
 if (require.main === module) {
   main(process.argv.slice(2)).then(
-    (code) => { if (code !== 'serving') process.exitCode = code ?? 0; },
+    (code) => { if (code !== 'serving') process.exitCode = Number(code ?? 0); },
     (err) => {
       if (err instanceof UsageError) {
         process.stderr.write(`compress-media: ${err.message}\n`);

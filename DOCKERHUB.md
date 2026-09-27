@@ -1,6 +1,6 @@
 # Compress Media
 
-A self-hosted compressor for **videos, images and audio**. It has a drag-and-drop web UI, an HTTP API and a CLI, and is built on ffmpeg and sharp. Your files stay on your own machine.
+A self-hosted compressor for **videos, images, audio and PDFs**. It has a drag-and-drop web UI, an HTTP API and a CLI, and is built on ffmpeg, sharp and Ghostscript. Your files stay on your own machine, and there's even an in-browser mode where they never leave the device.
 
 It is made for huge QuickTime screen recordings: a 2880×1800, 60 fps recording typically comes out **90–98% smaller**.
 
@@ -9,12 +9,13 @@ Made by [RunSnip](https://runsnip.com) · [Source on GitHub](https://github.com/
 ## Run the web UI
 
 ```bash
-docker run -d --name compress-media -p 127.0.0.1:4747:4747 runsnip/compress-media
+docker run -d --name compress-media -p 127.0.0.1:4747:4747 -v compress-media-data:/data \
+  -e AUTH_USERNAME=me@example.com -e AUTH_PASSWORD='choose-a-password' runsnip/compress-media
 ```
 
-Then open **http://localhost:4747**.
+Then open **http://localhost:4747** and sign in. Without `AUTH_PASSWORD`, a password is generated: `docker logs compress-media | grep Login`.
 
-The port above is only reachable from this machine. Use `-p 4747:4747` to open it to your network. There is **no authentication**, so only do that on a trusted network or behind a proxy with auth.
+The port above is only reachable from this machine. Use `-p 4747:4747` to open it to your network, and put HTTPS in front with a reverse proxy when it's public.
 
 With Docker Compose:
 
@@ -25,6 +26,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:4747:4747"
+    environment:
+      AUTH_USERNAME: me@example.com
+      AUTH_PASSWORD: choose-a-password
     volumes:
       - media-data:/data
 volumes:
@@ -58,6 +62,13 @@ docker run --rm runsnip/compress-media compress-media --help
   - Resize, and strip EXIF/GPS.
   - Animated GIFs stay animated.
 - **Audio** (WAV, M4A, FLAC, AIFF, MP3…) → MP3, M4A or Opus, with a bitrate setting and optional mono.
+- **PDF** → smaller PDF (72–300 dpi image presets, optional grayscale).
+- **Video extras**
+  - Trim.
+  - WebM (VP9/AV1), AV1 in MP4, and animated GIF.
+  - Two-pass target size.
+  - GPU encoding (`--device /dev/dri` for VA-API on Intel/AMD; NVENC and Quick Sync need a different ffmpeg build via `FFMPEG_PATH`).
+- Login, ZIP downloads, live progress (SSE), signed webhooks, and a Redis queue with separate workers (`ROLE=web|worker`).
 
 ## Configuration
 
@@ -68,6 +79,8 @@ docker run --rm runsnip/compress-media compress-media --help
 | `MEDIA_CONCURRENCY` | `1` | Parallel video/audio jobs |
 | `IMAGE_CONCURRENCY` | `3` | Parallel image jobs |
 | `PORT` | `4747` | Port inside the container |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` / `AUTH_TOKEN` | `admin` / generated / — | Login; `AUTH_ENABLED=false` turns it off |
+| `QUEUE` / `REDIS_URL` / `ROLE` | `memory` / — / `all` | Shared queue and separate web/worker containers |
 | `UPLOAD_PART_MB` / `UPLOAD_CONCURRENCY` | `8` / `4` | Resumable, parallel part uploads |
 | `STORAGE` | `local` | `s3`: browsers upload straight to an S3-compatible bucket (AWS S3, R2, GCS, MinIO, B2…) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | — | Object storage settings (see the GitHub README) |
@@ -80,11 +93,19 @@ Source and full documentation: **[github.com/material-atomic/compress-media](htt
 
 ## Tags and platforms
 
-- `latest`, `1`, `1.1` and `1.1.0` follow semver (older releases keep their own tags, e.g. `1.0.0`).
+- `latest`, `2`, `2.0` and `2.0.0` follow semver; older releases keep their own tags (e.g. `1.1.0`).
+- **`-nopdf` variants** (`latest-nopdf`, `2.0.0-nopdf`, …) leave out Ghostscript (AGPL-3.0) and PDF support. They're about 100 MB smaller, for organisations that don't allow AGPL software.
 - Images are built for `linux/amd64` and `linux/arm64` (Apple Silicon, Raspberry Pi 4/5, Graviton).
 
 Hardware encoding (Apple VideoToolbox) is only available when running natively on macOS, not in Docker.
 
 ## License
 
-The code is MIT licensed. The image contains ffmpeg with x264/x265 (GPL) and libheif (LGPL) from Alpine Linux.
+The code is MIT licensed. The image also contains, from Alpine Linux:
+
+- FFmpeg with x264/x265 (**GPL**), run as a separate program;
+- Ghostscript (**AGPL-3.0**), for PDF;
+- libheif (LGPL);
+- libvips through sharp (LGPL-3.0).
+
+These keep their own licenses, which apply if you redistribute the image. Sources are at pkgs.alpinelinux.org. The `-nopdf` tags have no Ghostscript. Details: `THIRD_PARTY_NOTICES.md` in the repository and at `/app/THIRD_PARTY_NOTICES.md` in the image.

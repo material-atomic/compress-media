@@ -55,8 +55,8 @@ test.describe('images', () => {
     expect(meta.pages).toBeGreaterThan(1);
   });
 
-  test('HEIC photos become JPEG', async ({ page, request }, testInfo) => {
-    test.skip(!(await serverConfig(request)).heicDecoder, 'server has no HEIC decoder');
+  test('HEIC photos become JPEG', async ({ page }, testInfo) => {
+    test.skip(!(await serverConfig(page)).heicDecoder, 'server has no HEIC decoder');
     test.skip(!fs.existsSync(fixture('photo.heic')), 'HEIC fixture is only generated on macOS');
     await addFiles(page, 'photo.heic');
     const r = row(page, 'photo.heic');
@@ -99,5 +99,34 @@ test.describe('images', () => {
     expect(uploads).toBe(0);
     const out = await download(page, r, testInfo);
     expect(out.name).toBe('photo-compressed.avif');
+  });
+});
+
+test.describe('pdf', () => {
+  test('shrinks a PDF with the Balanced preset', async ({ page }, testInfo) => {
+    await open(page);
+    const cfg = await serverConfig(page);
+    test.skip(!cfg.pdf, 'server has no Ghostscript');
+    test.skip(!fs.existsSync(fixture('doc.pdf')), 'PDF fixture needs Ghostscript');
+    await page.getByRole('tab', { name: 'PDF' }).click();
+    await pick(page, 'pdf.quality', 'ebook');
+    await addFiles(page, 'doc.pdf');
+
+    const r = row(page, 'doc.pdf');
+    await waitDone(r);
+    await expect(r.locator('.meta')).toContainText('PDF · Balanced');
+    const out = await download(page, r, testInfo);
+    expect(out.name).toBe('doc-compressed.pdf');
+    expect(out.size).toBeLessThan(fs.statSync(fixture('doc.pdf')).size / 2);
+    expect(fs.readFileSync(out.file).subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  test('the PDF tab is hidden when the server has no Ghostscript', async ({ page }) => {
+    await page.route('**/api/config', async (route) => {
+      const res = await route.fetch();
+      await route.fulfill({ response: res, json: { ...(await res.json()), pdf: false } });
+    });
+    await open(page);
+    await expect(page.getByRole('tab', { name: 'PDF' })).toBeHidden();
   });
 });

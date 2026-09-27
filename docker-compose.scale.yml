@@ -1,0 +1,69 @@
+# Scale out: one web server + separate workers sharing a Redis queue.
+#
+#   docker compose -f docker-compose.scale.yml up -d
+#   docker compose -f docker-compose.scale.yml up -d --scale worker=4    # more workers
+#   open http://localhost:4747   (login: AUTH_USERNAME / AUTH_PASSWORD from .env, or see `logs web`)
+#
+# All containers here share one volume, so local storage works on a single host. To spread workers
+# over several machines, use STORAGE=s3 (see docs/deployment.md) so every machine sees the files.
+
+x-app: &app
+  image: ${COMPRESS_MEDIA_IMAGE:-runsnip/compress-media:latest}
+  restart: unless-stopped
+  environment: &env
+    QUEUE: redis
+    REDIS_URL: redis://redis:6379
+    AUTH_USERNAME: ${AUTH_USERNAME:-admin}
+    AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+    # Stable session secret for all web instances (otherwise each generates its own).
+    AUTH_SECRET: ${AUTH_SECRET:-}
+    JOB_TTL_HOURS: ${JOB_TTL_HOURS:-3}
+    MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-0}
+    STORAGE: ${STORAGE:-local}
+    S3_BUCKET: ${S3_BUCKET:-}
+    S3_REGION: ${S3_REGION:-us-east-1}
+    S3_ENDPOINT: ${S3_ENDPOINT:-}
+    S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+    S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  volumes:
+    - media-data:/data
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  web:
+    <<: *app
+    environment:
+      <<: *env
+      ROLE: web
+      PUBLIC_URL: ${PUBLIC_URL:-}
+    ports:
+      - "127.0.0.1:${COMPRESS_MEDIA_PORT:-4747}:4747"
+
+  worker:
+    <<: *app
+    environment:
+      <<: *env
+      ROLE: worker
+      MEDIA_CONCURRENCY: ${MEDIA_CONCURRENCY:-1}
+    deploy:
+      replicas: 2
+    # Workers don't serve HTTP, so the image's web health check doesn't apply.
+    healthcheck:
+      disable: true
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  media-data:
+  redis-data:

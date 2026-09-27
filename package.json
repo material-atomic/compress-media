@@ -1,14 +1,15 @@
 {
   "name": "compress-media",
-  "version": "1.1.0",
-  "description": "Self-hosted video, image and audio compressor with a drag-and-drop web UI, powered by ffmpeg and sharp.",
+  "version": "2.0.0",
+  "description": "Self-hosted video, image, audio and PDF compressor with a web UI, CLI and HTTP API — ffmpeg, sharp and Ghostscript, with login, S3 storage, a Redis queue and an in-browser mode.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "type": "commonjs",
   "dependencies": {
@@ -16,10 +17,14 @@
     "@aws-sdk/lib-storage": "^3.1141.0",
     "@aws-sdk/s3-request-presigner": "^3.1141.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
+    "bullmq": "^6.3.9",
     "express": "^5.2.1",
     "ffmpeg-static": "^5.3.0",
+    "ioredis": "^6.0.0",
+    "mediabunny": "^1.60.0",
     "multer": "^2.4.0",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "yazl": "^3.3.1"
   },
   "private": true,
   "license": "MIT",
@@ -31,13 +36,21 @@
     "video",
     "image",
     "audio",
+    "pdf",
     "ffmpeg",
     "sharp",
+    "webcodecs",
+    "gif",
+    "av1",
     "self-hosted",
     "docker"
   ],
   "devDependencies": {
-    "@playwright/test": "^1.63.0"
+    "@playwright/test": "^1.63.0",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
   },
   "bin": {
     "compress-media": "bin/cli.js"
@@ -48,7 +61,8 @@
     "public",
     "server.js",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "repository": {
     "type": "git",

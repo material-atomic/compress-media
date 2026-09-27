@@ -1,6 +1,6 @@
 # Compress Media
 
-> Self-hosted compressor for video, images and audio (ffmpeg + sharp), with a drag-and-drop web UI, a CLI (`compress-media`) and a JSON HTTP API. Uploads are chunked and resumable, and can go straight to S3-compatible storage. Docker image: runsnip/compress-media (linux/amd64, linux/arm64). MIT licensed.
+> Self-hosted compressor for video, images, audio and PDF (ffmpeg + sharp + Ghostscript), with a drag-and-drop web UI, a CLI (`compress-media`) and a JSON HTTP API. It supports login, chunked resumable uploads (optionally straight to S3-compatible storage), trimming, GIF/WebM/AV1 output, GPU encoding, ZIP downloads, SSE and signed webhooks, an optional in-browser mode (WebCodecs), and a Redis queue with separate workers. Docker image: runsnip/compress-media (linux/amd64, linux/arm64). MIT licensed; bundled binaries keep their own licenses.
 
 Which interface to use:
 
@@ -19,7 +19,8 @@ Which interface to use:
 
 - [Configuration](docs/configuration.md): every environment variable (server, uploads, storage, binaries)
 - [Deployment](docs/deployment.md): native, Docker, Compose, reverse proxy (Caddy/nginx), object storage per provider, CORS, lifecycle, IAM, scaling limits
-- [Security](SECURITY.md): deployment model (no built-in auth), reporting vulnerabilities
+- [Security](SECURITY.md): login, deployment model, reporting vulnerabilities
+- [Third-party notices](THIRD_PARTY_NOTICES.md): FFmpeg (GPL), Ghostscript (AGPL), libvips (LGPL), Mediabunny (MPL) and what redistribution requires
 
 ## Agent skills
 

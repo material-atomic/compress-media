@@ -19,12 +19,13 @@ compress-media [options] <file|dir>...      compress
 compress-media probe <file>... [--json]     describe files (size, duration, resolution, fps, codecs)
 compress-media info [--json]                capabilities: hardware encoder, HEIC support, formats
 compress-media serve [--port N] [--host H]  start the web UI (same as npm start; reads the same env vars)
+compress-media worker                       process queued jobs only (QUEUE=redis; see configuration.md)
 ```
 
 ## Output
 
 - Results are written **next to each input** as `<name>-compressed.<ext>`. Inputs are never modified.
-- Output extensions: video → `.mp4`, audio → `.mp3`, `.m4a` or `.ogg` (Opus), images → the chosen format (`jpeg` → `.jpg`).
+- Output extensions: video → `.mp4`, `.webm` or `.gif`, audio → `.mp3`, `.m4a` or `.ogg` (Opus), images → the chosen format (`jpeg` → `.jpg`), PDF → `.pdf`.
 - While a file is being written it is named `<name>-compressed.partial.<ext>`. It is renamed when finished, and removed on Ctrl+C.
 
 | Flag | Default | Meaning |
@@ -39,14 +40,16 @@ compress-media serve [--port N] [--host H]  start the web UI (same as npm start;
 
 When two inputs would produce the same output name, the source extension is added to keep them apart. For example, `photo.png` and `photo.heic` become `photo-png-compressed.webp` and `photo-heic-compressed.webp`.
 
-## Video (→ MP4)
+## Video (→ MP4, WebM or GIF)
 
 | Flag | Values | Default | Notes |
 |---|---|---|---|
-| `--quality <q>` | `high` `balanced` `small` `tiny` | `balanced` | CRF 21/24/28/32 for H.264, 24/27/30/34 for H.265 |
-| `--target-mb <n>` | number | — | Aim for a total size. Overrides `--quality` and always uses the CPU encoder. Fails if the target is impossible for the duration. |
-| `--codec <c>` | `h264` `h265` | `h264` | H.265 is 30–50% smaller and tagged `hvc1` for QuickTime and Safari. |
-| `--hw` | flag | off | Apple VideoToolbox. macOS only, several times faster. Ignored with a note elsewhere. |
+| `--video-format <f>` | `mp4` `webm` `gif` | `mp4` | WebM holds VP9 or AV1 + Opus. GIF is animated, has no sound, and defaults to 480p and 12 fps. |
+| `--quality <q>` | `high` `balanced` `small` `tiny` | `balanced` | CRF 21/24/28/32 (H.264), 24/27/30/34 (H.265), 30/35/40/46 (AV1), 30/34/38/44 (VP9). For GIF: fewer colours. |
+| `--target-mb <n>` | number | — | Aim for a total size. Encodes **twice** (two-pass) on the CPU to land close to it, and overrides `--quality`. Fails if the target is impossible for the duration. Not for GIF. |
+| `--codec <c>` | mp4: `h264` `h265` `av1` · webm: `vp9` `av1` | `h264` / `vp9` | H.265 is 30–50% smaller than H.264 and tagged `hvc1` for QuickTime and Safari. AV1 is smaller still but slower. `compress-media info` shows whether AV1 is available. |
+| `--hw` | flag | off | Hardware encoder: VideoToolbox (macOS), NVIDIA NVENC, Intel Quick Sync, VA-API or AMD AMF. It's detected at startup (`info` shows which) and ignored with a note when there's none. |
+| `--start <t>`, `--end <t>` | seconds or `[hh:]mm:ss` | whole video | Keep only this part, e.g. `--start 5 --end 1:30`. Either can be left out. |
 | `--speed <s>` | `fast` `medium` `slow` | `medium` | CPU encoder effort. `slow` gives smaller files. |
 | `--max-res <n>` | pixels | keep | Caps the **short** side (1080 → 1920×1080 or 1080×1920). Never upscales. |
 | `--fps <n>` | number | keep | Frame-rate cap. Only applied when the source is faster. |
@@ -69,6 +72,15 @@ When two inputs would produce the same output name, the source extension is adde
 | `--bitrate <kbps>` | 32 48 64 96 128 160 192 256 | `128` |
 | `--mono` | flag | off |
 
+## PDF
+
+Needs Ghostscript (`gs` on `PATH`, or `GS_PATH`). The Docker image includes it.
+
+| Flag | Values | Default | Notes |
+|---|---|---|---|
+| `--pdf-quality <q>` | `screen` `ebook` `printer` `prepress` | `ebook` | Image resolution: 72 / 150 / 300 dpi / print-shop quality. `ebook` suits CVs, reports and portfolios. |
+| `--grayscale` | flag | off | Convert every page to grayscale |
+
 ## Examples
 
 ```bash
@@ -83,6 +95,15 @@ compress-media clip.mov --codec h265 --speed slow
 
 # Long video on a Mac, fast
 compress-media lecture.mov --hw --max-res 1080
+
+# A GIF of 15 seconds of a screen recording, for an issue or a doc
+compress-media demo.mov --start 0:04 --end 0:19 --video-format gif --max-res 480
+
+# Smallest file for modern browsers
+compress-media talk.mov --video-format webm --codec av1 --max-res 1080
+
+# A CV for email
+compress-media cv.pdf --pdf-quality ebook
 
 # A photo library for the web, mirrored into ./web
 compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o web
@@ -126,6 +147,9 @@ compress-media probe "Screen Recording.mov"
 - **Video:** `duration`, `width`, `height` (rotation applied), `fps`, `videoCodec`, `bitrateKbps`, `audioCodec`, `audioChannels`.
 - **Audio:** `duration`, `bitrateKbps`, `audioCodec`, `audioChannels`.
 - **Images:** `format`, `width`, `height`, `animated`, `hasMetadata`.
+- **PDF:** `pages`.
+
+`info --json` returns `{ version, platform, node, ffmpeg, ffprobe, hardwareEncoder, hardwareName, hardwareCodecs, av1, webm, pdf, heicDecoder, formats }`.
 
 ## Exit codes
 
@@ -139,6 +163,7 @@ compress-media probe "Screen Recording.mov"
 ## Performance
 
 - Images take well under a second each, and up to 4 run in parallel.
-- Video and audio run one at a time, because each ffmpeg uses every core.
-- On the CPU, 1080p video encodes at roughly 0.5–2× real time. `--hw` (macOS) or `--speed fast` is several times quicker.
+- Video, audio and PDF run one at a time, because each ffmpeg uses every core.
+- On the CPU, 1080p video encodes at roughly 0.5–2× real time. `--hw` or `--speed fast` is several times quicker.
+- `--target-mb` encodes twice, so it takes about twice as long. AV1 is several times slower than H.264.
 - On Linux ARM, set `FFMPEG_PATH`/`FFPROBE_PATH` to the distribution's ffmpeg. The bundled generic build is much slower there.

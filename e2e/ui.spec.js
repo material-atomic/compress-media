@@ -4,7 +4,7 @@ const { test, expect, fixture, open, addFiles, row, waitDone, pick, download } =
 test.describe('file list', () => {
   test.beforeEach(async ({ page }) => open(page));
 
-  test('batch upload shows a summary and "Download all" fetches every result', async ({ page }) => {
+  test('batch upload shows a summary and "Download all" saves one ZIP with every result', async ({ page }, testInfo) => {
     await addFiles(page, 'photo.png', 'photo.jpg', 'voice.wav');
     for (const name of ['photo.png', 'photo.jpg', 'voice.wav']) await waitDone(row(page, name));
 
@@ -12,12 +12,16 @@ test.describe('file list', () => {
     await expect(summary).toContainText('3 done');
     await expect(summary).toContainText(/saved .+ \(\d+%\)/);
 
-    const names = [];
-    page.on('download', (d) => names.push(d.suggestedFilename()));
-    await page.getByRole('button', { name: 'Download all' }).click();
-    await expect.poll(() => names.sort(), { timeout: 20_000 }).toEqual(
-      ['photo-compressed.jpg', 'photo-compressed.png', 'voice-compressed.mp3'],
-    );
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download all (ZIP)' }).click()]);
+    expect(dl.suggestedFilename()).toMatch(/^compressed-\d{4}-\d{2}-\d{2}\.zip$/);
+    const file = testInfo.outputPath('all.zip');
+    await dl.saveAs(file);
+    const zip = fs.readFileSync(file);
+    expect(zip.subarray(0, 2).toString()).toBe('PK');
+    // Stored (uncompressed) entries: every file name appears in the archive.
+    for (const name of ['photo-compressed.png', 'photo-compressed.jpg', 'voice-compressed.mp3']) {
+      expect(zip.includes(Buffer.from(name))).toBe(true);
+    }
   });
 
   test('files can be dropped onto the page', async ({ page }) => {
@@ -55,7 +59,7 @@ test.describe('file list', () => {
     await expect(r.locator('.meta')).toHaveText('Disk is full');
   });
 
-  test('removing a row deletes the job and its files on the server', async ({ page, request }) => {
+  test('removing a row deletes the job and its files on the server', async ({ page }) => {
     const created = page.waitForResponse((res) => /\/api\/(jobs|uploads\/[^/]+\/complete)$/.test(res.url()) && res.request().method() === 'POST');
     await addFiles(page, 'photo.png');
     const { id } = await (await created).json();
@@ -64,7 +68,7 @@ test.describe('file list', () => {
 
     await r.getByRole('button', { name: 'Remove from list' }).click();
     await expect(r).toHaveCount(0);
-    await expect.poll(async () => (await request.get(`/api/jobs/${id}`)).status()).toBe(404);
+    await expect.poll(async () => (await page.request.get(`/api/jobs/${id}`)).status()).toBe(404);
   });
 
   test('"Clear list" removes finished rows and hides the summary', async ({ page }) => {

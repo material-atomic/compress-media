@@ -21,6 +21,10 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - name: Ghostscript for the PDF tests (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ghostscript
+      - run: npm run typecheck
       - run: node --check server.js
       - run: node --check lib/media.js
       - run: node --check bin/cli.js
@@ -38,6 +42,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y ghostscript
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
@@ -82,6 +87,37 @@ jobs:
       - if: failure()
         run: docker logs s3 | tail -50
 
+  redis:
+    name: Shared queue (Redis, separate web and workers)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      QUEUE: redis
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: API, CLI and auth tests with the Redis queue (all-in-one process)
+        run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: E2E through one web server and two workers
+        run: |
+          export AUTH_USERNAME=e2e@example.com AUTH_PASSWORD=e2e-password WORK_DIR=/tmp/cm-work
+          ROLE=web PORT=4790 node server.js > web.log 2>&1 &
+          node bin/cli.js worker > worker1.log 2>&1 &
+          ROLE=worker node server.js > worker2.log 2>&1 &
+          timeout 30 sh -c 'until curl -sf localhost:4790/api/health; do sleep 1; done'
+          E2E_BASE_URL=http://127.0.0.1:4790 npx playwright test --project=chromium
+      - if: failure()
+        run: tail -50 web.log worker1.log worker2.log
+
   docker:
     name: Docker image
     runs-on: ubuntu-latest
@@ -105,7 +141,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: E2E against the container
         run: |
-          docker run -d --name app -p 4790:4747 -e MEDIA_CONCURRENCY=3 compress-media:ci
+          docker run -d --name app -p 4790:4747 -e MEDIA_CONCURRENCY=3 \
+            -e AUTH_USERNAME=e2e@example.com -e AUTH_PASSWORD=e2e-password compress-media:ci
           timeout 30 sh -c 'until curl -sf localhost:4790/api/health; do sleep 1; done'
           E2E_BASE_URL=http://127.0.0.1:4790 npx playwright test --project=chromium
       - if: failure()

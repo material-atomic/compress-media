@@ -3,6 +3,9 @@
 //
 //   node compress.mjs "Screen Recording.mov" '{"video":{"resolution":1080,"fps":30}}'
 //   COMPRESS_MEDIA_URL=https://media.example.com node compress.mjs photo.png '{"image":{"format":"webp"}}'
+//
+// Login (the server requires one by default): COMPRESS_MEDIA_TOKEN=<AUTH_TOKEN>, or
+// COMPRESS_MEDIA_USER=<AUTH_USERNAME> COMPRESS_MEDIA_PASSWORD=<AUTH_PASSWORD>.
 
 import { createWriteStream, openAsBlob } from 'node:fs';
 import { Readable } from 'node:stream';
@@ -11,11 +14,17 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const BASE = process.env.COMPRESS_MEDIA_URL || 'http://localhost:4747';
+const { COMPRESS_MEDIA_TOKEN: TOKEN, COMPRESS_MEDIA_USER: USER, COMPRESS_MEDIA_PASSWORD: PASSWORD = '' } = process.env;
+
+/** Credentials for this server only — never sent to presigned storage URLs. */
+const AUTH = TOKEN
+  ? { Authorization: `Bearer ${TOKEN}` }
+  : USER ? { Authorization: `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString('base64')}` } : {};
 
 async function api(method, url, body) {
   const res = await fetch(BASE + url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...AUTH, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body && JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -32,7 +41,7 @@ async function putPart(upload, n, blob) {
         : `${BASE}/api/uploads/${upload.uploadId}/parts/${n}`;
       const res = await fetch(url, {
         method: 'PUT',
-        headers: upload.direct ? {} : { 'Content-Type': 'application/octet-stream' },
+        headers: upload.direct ? {} : { ...AUTH, 'Content-Type': 'application/octet-stream' },
         body: blob,
       });
       if (res.ok) return;
@@ -69,7 +78,8 @@ export async function compressFile(file, options = {}) {
 
   // 5. Download (fetch follows the redirect to object storage) and delete the job.
   const out = path.join(path.dirname(file), job.outputName);
-  const res = await fetch(`${BASE}/api/jobs/${job.id}/file`);
+  // fetch drops the Authorization header when it follows the redirect to another origin (storage).
+  const res = await fetch(`${BASE}/api/jobs/${job.id}/file`, { headers: AUTH });
   await pipeline(Readable.fromWeb(res.body), createWriteStream(out)); // streamed: results can be large
   await api('DELETE', `/api/jobs/${job.id}`);
   return { output: out, inputSize: job.inputSize, outputSize: job.outputSize };

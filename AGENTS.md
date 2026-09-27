@@ -11,25 +11,32 @@ This file is for AI coding agents that **work on this repository**.
 Compress Media is a self-hosted compressor for video, images and audio.
 
 - Node.js 20+ and CommonJS.
-- ffmpeg handles video and audio, sharp handles images.
+- ffmpeg handles video and audio, sharp handles images, Ghostscript handles PDF.
 - There are three front ends over one pipeline: a web UI, an HTTP API and a CLI.
-- There is no build step and no framework.
+- The web UI can also compress in the browser (WebCodecs through Mediabunny).
+- There is no build step and no framework. Types are JSDoc checked by `tsc --noEmit` (`npm run typecheck`).
 
 ```
-lib/media.js     the pipeline: detectKind, detectCapabilities (caps), probe, compress({ kind, input, options, outputPath, … })
-lib/storage.js   STORAGE=local|s3 backends: chunked upload lifecycle, where results live, contentDisposition
-server.js        Express app: chunked upload → in-memory job queue → lib/media → download. Exports { app, start }.
+lib/types.d.ts   shared shapes: option objects, capabilities, CompressTask — referenced from JSDoc
+lib/media.js     the engine: detectKind, detectCapabilities (caps), probe, pdfPages, compress({ kind, input, options, … })
+lib/jobs.js      job lifecycle: create, processJob (worker), cancel, retry, remove, sweep; run tokens; webhooks
+lib/store.js     QUEUE=memory|redis: job/upload records, the queue (BullMQ), locks — one interface
+lib/storage.js   STORAGE=local|s3: upload parts, inputs/outputs (put/fetch/open/remove), presigned URLs, CORS
+lib/auth.js      built-in login: sessions, Basic, bearer token, rate limit, generated password
+lib/webhook.js   webhook validation (SSRF guard) and signed delivery
+server.js        Express app (ROLE=web|worker|all): uploads, jobs API, ZIP, SSE, /vendor/mediabunny.mjs
 bin/cli.js       CLI: compress / probe / info / serve. Exports { main, buildOptions }.
-public/          UI: index.html (English text + data-i18n keys), app.js, i18n.js (translations), app.css
+public/          UI: index.html (English + data-i18n keys), app.js, local.js (in-browser mode), i18n.js, app.css
 test/            node:test — smoke.test.js (HTTP API), cli.test.js (CLI)
 e2e/             Playwright specs (Chromium, Firefox, WebKit) + global-setup that generates fixtures
-examples/        API clients: compress.sh (bash+curl+jq), compress.mjs (Node) — both storage modes
+examples/        API clients: compress.sh (bash+curl+jq), compress.mjs (Node) — both storage modes, login via env
+THIRD_PARTY_NOTICES.md  licenses of FFmpeg (GPL), Ghostscript (AGPL), libvips (LGPL), Mediabunny (MPL)…
 docs/            cli.md, api.md, configuration.md, deployment.md (reference docs, English)
 skills/          compress-media (use the tool) · compress-media-deploy (run the server) — self-contained
 README.md        overview + quick starts; README.vi.md is a full Vietnamese translation of it
 DOCKERHUB.md     Docker Hub page, synced by the release workflow
 llms.txt         index of the docs for LLMs
-docker-compose*.yml   published image / build from source / app + SeaweedFS (S3 demo)
+docker-compose*.yml   published image / build from source / app + SeaweedFS (S3 demo) / web + workers + Redis (scale)
 ```
 
 ## Commands
@@ -38,7 +45,8 @@ docker-compose*.yml   published image / build from source / app + SeaweedFS (S3 
 npm install
 npm run dev                  # web UI on http://localhost:4747 (restarts on change)
 node bin/cli.js --help       # CLI
-npm test                     # API + CLI tests (~30 s)
+npm run typecheck            # JSDoc types (tsc --noEmit)
+npm test                     # API, CLI and login tests (~40 s); also: QUEUE=redis REDIS_URL=… npm test
 npm run test:e2e             # Playwright on 3 browsers (~2–5 min); first time: npx playwright install chromium firefox webkit
 npx playwright test --project=chromium -g "cancel"   # a focused E2E run
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # local image on 127.0.0.1:4747
@@ -47,7 +55,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
 
 **Done means:**
 
-- `npm test` passes.
+- `npm run typecheck` and `npm test` pass.
 - `npm run test:e2e` passes, at least `--project=chromium` for UI changes.
 - New behaviour has a test:
   - pipeline or CLI changes → `test/`;
@@ -62,10 +70,15 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
 - **Platform differences go through `caps`** (`hardwareEncoder`, `heicDecoder`).
   - The UI hides unsupported options with `data-requires="<cap>"`.
   - `lib/media.js` silently falls back: `--hw` without VideoToolbox → CPU.
-- **Jobs are cancellable at any point.**
-  - Every run gets a token (`job.run`), and stale runs must not touch job state (`isCancelled`, `stale()`).
+- **Jobs go through `lib/jobs.js` and `lib/store.js` only.** `server.js` never reads or writes records directly. Code must work with both stores: in Redis, a record is a JSON copy, not a shared object, so use `patchJob` rather than mutating.
+- **Jobs are cancellable at any point, across processes.**
+  - Every run has a number (`job.run`); cancel and retry bump it.
+  - Workers write only with `patchJob(id, patch, run)`, which is a no-op once the run changed.
+  - Workers watch the record (250 ms in memory, 1 s in Redis) and kill ffmpeg when their run is gone.
   - Outputs are per run: `outputs/<jobId>-<run>.<ext>`.
   - The CLI writes `<name>.partial.<ext>` and renames it at the end.
+- **Login guards every `/api` route** except health and `/api/auth/*` (`setupAuth` must run before other routes). New endpoints are protected automatically; don't add exceptions without a reason.
+- **Inputs may live in the bucket.** With `STORAGE=s3` a job has `inputKey`, not `inputPath`; workers `fetchInput` to a temp file. Never assume the web server's disk has the file.
 - **Uploads are chunked and modelled on S3 multipart** (init → parts → complete).
   - `lib/storage.js` decides where the parts go. `local` means `PUT /api/uploads/:id/parts/:n` into a pre-sized file. `s3` means presigned bucket URLs, so the browser never sends file bytes to the server.
   - New storage behaviour goes behind that interface. `server.js` must not branch on the provider.
@@ -87,6 +100,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
   | an endpoint or response | `docs/api.md`, `skills/compress-media/reference.md`, `examples/`, `test/smoke.test.js` |
   | an environment variable | `docs/configuration.md`, `.env.example`, `docker-compose*.yml`, `skills/compress-media-deploy/SKILL.md`, README config table (both languages) |
   | anything in README.md | the same section in README.vi.md |
+  | a dependency or bundled binary | `THIRD_PARTY_NOTICES.md` (license, how it's used), README license table (both languages) |
 
   Examples in docs are meant to be run: after editing one, run it.
 
@@ -110,7 +124,13 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
   - SeaweedFS ignores `response-content-disposition`, so `Content-Disposition` is also stored on the object.
   - Some stores keep both copies when a part number is re-uploaded, which breaks CompleteMultipartUpload. Don't design flows that re-send a part that already succeeded.
   - Browsers need bucket CORS for PUT (`S3_SETUP_CORS`, startup check with `PUBLIC_URL`).
-- **Downloads may redirect cross-origin** (to a presigned bucket URL). "Download all" therefore uses one hidden iframe per file, because successive anchor clicks cancel each other.
+- **Downloads may redirect cross-origin** (to a presigned bucket URL). "Download all" is therefore one server-built ZIP (`/api/jobs/zip`), not many downloads, which cancelled each other.
+- **In-browser mode (`public/local.js`)**:
+  - WebCodecs exists only in secure contexts (HTTPS or localhost), and support differs by browser. For example, Firefox has no AAC encoder, Chromium no HEVC, and Safari's canvas can't encode WebP.
+  - Anything unsupported must throw `LocalUnsupported` so the app falls back to the server with a note. Check with `canEncodeVideo`/`canEncodeAudio`; never assume.
+  - Local jobs (`job.local`) never exist on the server, so exclude them from polling, ZIP and DELETE calls.
+- **AV1 input in sharp** is reported as format `heif` with compression `av1`; map it to `avif` (the type checker caught this).
+- **Ghostscript** is AGPL: it must stay an external program (never linked or bundled into npm), and optional in the Docker image (`GHOSTSCRIPT` build arg).
 - **Test S3 mode locally** with any S3-compatible container. `docker compose -f docker-compose.s3.yml up -d` starts the app with SeaweedFS (MinIO no longer publishes community images). Run `STORAGE=s3 S3_… npm test`, and run `E2E_BASE_URL=… npx playwright test` against a server started with those variables. Use `UPLOAD_PART_MB` ≥ 5 in S3 mode.
 - **Docker Desktop disk**: when the VM disk is full, containers fail with `ENOSPC`, and S3 test servers report "no free space". Don't prune volumes you didn't create; ask the user.
 - **E2E shares one server.**

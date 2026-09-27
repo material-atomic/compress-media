@@ -39,8 +39,19 @@ const test = base.test.extend({
   },
 });
 
-/** Opens the app and waits until the server config has been applied. */
-async function open(page) {
+// Credentials of the server under test (playwright.config.js starts it with these).
+const USERNAME = process.env.E2E_USERNAME || 'e2e@example.com';
+const PASSWORD = process.env.E2E_PASSWORD || 'e2e-password';
+
+/** Signs in through the API (sets the session cookie for the page's context). */
+async function signIn(page) {
+  const res = await page.request.post('/api/auth/login', { data: { username: USERNAME, password: PASSWORD } });
+  expect(res.ok(), `login failed: ${res.status()}`).toBe(true);
+}
+
+/** Signs in, opens the app and waits until the server config has been applied. */
+async function open(page, { login = true } = {}) {
+  if (login) await signIn(page);
   const config = page.waitForResponse('**/api/config');
   await page.goto('/');
   await config;
@@ -64,7 +75,8 @@ async function waitDone(rowLocator, timeout = JOB_TIMEOUT) {
 
 /** Clicks a segmented-control option, e.g. pick(page, 'video.codec', 'h265'). */
 async function pick(page, name, value) {
-  const button = page.locator(`.seg[data-name="${name}"] button[data-value="${value}"]`);
+  // Some settings have one control per context (e.g. a codec row for MP4 and one for WebM): use the visible one.
+  const button = page.locator(`.seg[data-name="${name}"] button[data-value="${value}"]`).filter({ visible: true });
   await button.click();
   await expect(button).toHaveAttribute('aria-pressed', 'true');
 }
@@ -87,8 +99,8 @@ function probe(file) {
   return { video, audio, fps: d ? n / d : 0, format: data.format };
 }
 
-async function serverConfig(request) {
-  return (await request.get('/api/config')).json();
+async function serverConfig(page) {
+  return (await page.request.get('/api/config')).json();
 }
 
-module.exports = { test, expect, fixture, open, addFiles, row, waitDone, pick, download, probe, serverConfig };
+module.exports = { test, expect, fixture, open, signIn, addFiles, row, waitDone, pick, download, probe, serverConfig, USERNAME, PASSWORD };
