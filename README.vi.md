@@ -54,17 +54,20 @@ Công cụ tự host để nén **video, ảnh, âm thanh và PDF**, kèm công 
 
 ## Dự kiến cho 2.2
 
-Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đổi.
+Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đổi. Các tính năng AI dùng model nhỏ chạy bằng CPU ngay trên server của bạn (hoặc trong trình duyệt); giống model giọng nói, chúng được tải ở lần dùng đầu, và chỉ chọn model có giấy phép cho phép dùng thương mại.
 
-- **Âm thanh sạch hơn.** Chuẩn hóa âm lượng theo mức YouTube và TikTok yêu cầu (−14 LUFS), và giảm tiếng ồn nền (quạt, máy lạnh) cho video và âm thanh.
+- **Âm thanh sạch hơn.** Chuẩn hóa âm lượng theo mức YouTube và TikTok yêu cầu (−14 LUFS), và giảm tiếng ồn nền (quạt, máy lạnh) cho video và âm thanh, bằng RNNoise (model khoảng 100 KB, qua filter `arnndn` của ffmpeg).
 - **Xoay, lật và đổi tốc độ.** Dựng thẳng video quay ngang, lật gương, hoặc phát nhanh 1.5×, 2×, hay làm timelapse.
 - **Cắt khoảng lặng.** Tự bỏ các quãng ngừng dài trong video nói (jump cut), dùng chung bộ phát hiện giọng nói với tính năng phụ đề.
 - **Chèn watermark.** Đặt logo hoặc chữ lên video và ảnh, chọn được vị trí và độ mờ.
-- **Chương cho YouTube.** Gợi ý mốc chương từ phụ đề, dán thẳng vào phần mô tả video.
-- **Dịch phụ đề** sang các ngôn ngữ khác ngoài tiếng Anh (ví dụ Anh → Việt).
+- **Chương cho YouTube.** Gợi ý mốc và tên chương từ phụ đề bằng một mô hình ngôn ngữ nhỏ (Qwen2.5 0.5B–1.5B qua llama.cpp), dán thẳng vào phần mô tả video.
+- **Dịch phụ đề** sang các ngôn ngữ khác ngoài tiếng Anh (ví dụ Anh → Việt), bằng model dịch Opus-MT hoặc chính mô hình ngôn ngữ nhỏ ở trên.
 - **Ghép video.** Nối nhiều đoạn thành một video.
 - **Tách âm thanh** khỏi video thành MP3, M4A hoặc Opus.
 - **Chuyển đổi phụ đề** giữa SRT và WebVTT mà không cần video.
+- **Xóa phông nền ảnh** (U²-Net hoặc MODNet, 5–25 MB), cho ảnh sản phẩm và chân dung.
+- **Phóng to ảnh** 2× hoặc 4× và làm nét (Real-ESRGAN).
+- **Làm mờ khuôn mặt** trong ảnh và video để bảo vệ riêng tư (nhận diện khuôn mặt bằng YuNet, dưới 1 MB).
 - **Xem thông tin file** trên giao diện web và API: thời lượng, độ phân giải, FPS, codec và bitrate trước khi chọn cài đặt (hiện chỉ có ở lệnh `compress-media probe`).
 
 Những gì thay đổi qua từng phiên bản, kể cả lưu ý khi nâng cấp: [CHANGELOG.md](CHANGELOG.md) (tiếng Anh).

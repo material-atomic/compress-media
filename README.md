@@ -54,17 +54,20 @@ A self-hosted compressor for **videos, images, audio and PDFs**, with a GIF make
 
 ## Planned for 2.2
 
-Next up; not built yet, and details may change.
+Next up; not built yet, and details may change. AI features use small models that run on the CPU of your own server (or in the browser); like the speech models, they're downloaded on first use, and only models whose licence allows commercial use are chosen.
 
-- **Cleaner sound.** Loudness normalisation to the level YouTube and TikTok expect (−14 LUFS), and background-noise reduction (fans, air conditioning) for video and audio.
+- **Cleaner sound.** Loudness normalisation to the level YouTube and TikTok expect (−14 LUFS), and background-noise reduction (fans, air conditioning) for video and audio, with RNNoise (a model of about 100 KB, through ffmpeg's `arnndn` filter).
 - **Rotate, flip and change speed.** Turn a sideways video upright, mirror it, or play it 1.5×, 2× or as a timelapse.
 - **Cut the silences.** Remove long pauses from talking videos automatically (jump cuts), using the same speech detection as subtitles.
 - **Watermark.** Put a logo or text on videos and images, with position and opacity.
-- **YouTube chapters.** Chapter timestamps suggested from the subtitles, ready to paste into the video description.
-- **Translate subtitles** into other languages, not only English (for example English → Vietnamese).
+- **YouTube chapters.** Chapter timestamps and titles suggested from the subtitles by a small language model (Qwen2.5 0.5B–1.5B through llama.cpp), ready to paste into the video description.
+- **Translate subtitles** into other languages, not only English (for example English → Vietnamese), with Opus-MT translation models or the same small language model.
 - **Join videos.** Put several clips together into one.
 - **Extract the audio** from a video as MP3, M4A or Opus.
 - **Convert subtitles** between SRT and WebVTT without a video.
+- **Remove image backgrounds** (U²-Net or MODNet, 5–25 MB), for product photos and portraits.
+- **Upscale images** 2× or 4× and sharpen them (Real-ESRGAN).
+- **Blur faces** in photos and videos for privacy (YuNet face detection, under 1 MB).
 - **Media info** in the web UI and the API: duration, resolution, frame rate, codecs and bitrate before choosing settings (today only `compress-media probe` shows it).
 
 What changed in each release, including upgrade notes: [CHANGELOG.md](CHANGELOG.md).
