@@ -1,0 +1,61 @@
+{
+  "name": "compress-media",
+  "version": "1.1.0",
+  "description": "Self-hosted video, image and audio compressor with a drag-and-drop web UI, powered by ffmpeg and sharp.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1141.0",
+    "@aws-sdk/lib-storage": "^3.1141.0",
+    "@aws-sdk/s3-request-presigner": "^3.1141.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "express": "^5.2.1",
+    "ffmpeg-static": "^5.3.0",
+    "multer": "^2.4.0",
+    "sharp": "^0.35.4"
+  },
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "compress",
+    "video",
+    "image",
+    "audio",
+    "ffmpeg",
+    "sharp",
+    "self-hosted",
+    "docker"
+  ],
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  },
+  "bin": {
+    "compress-media": "bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "public",
+    "server.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/material-atomic/compress-media.git"
+  },
+  "homepage": "https://github.com/material-atomic/compress-media#readme",
+  "bugs": {
+    "url": "https://github.com/material-atomic/compress-media/issues"
+  }
+}

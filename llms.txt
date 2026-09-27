@@ -1,0 +1,33 @@
+# Compress Media
+
+> Self-hosted compressor for video, images and audio (ffmpeg + sharp), with a drag-and-drop web UI, a CLI (`compress-media`) and a JSON HTTP API. Uploads are chunked and resumable, and can go straight to S3-compatible storage. Docker image: runsnip/compress-media (linux/amd64, linux/arm64). MIT licensed.
+
+Which interface to use:
+
+- **CLI:** local files, scripts and agents. No server needed; results are written next to the inputs as `<name>-compressed.<ext>`.
+- **HTTP API:** a running server shared by several users or apps.
+- **Web UI:** people.
+
+## Using it
+
+- [README](README.md): overview, quick start for every interface, platform support, recommended settings
+- [CLI reference](docs/cli.md): commands (compress, probe, info, serve), every flag, JSON report, exit codes
+- [HTTP API reference](docs/api.md): endpoints, chunked upload protocol (local vs direct-to-S3), job lifecycle, option objects, status codes
+- [Example API clients](examples/): `compress.sh` (bash + curl + jq) and `compress.mjs` (Node.js 20+)
+
+## Running it
+
+- [Configuration](docs/configuration.md): every environment variable (server, uploads, storage, binaries)
+- [Deployment](docs/deployment.md): native, Docker, Compose, reverse proxy (Caddy/nginx), object storage per provider, CORS, lifecycle, IAM, scaling limits
+- [Security](SECURITY.md): deployment model (no built-in auth), reporting vulnerabilities
+
+## Agent skills
+
+- [compress-media skill](skills/compress-media/SKILL.md): compress files for a user, choose settings from the goal, read the report, safety rules
+- [compress-media reference](skills/compress-media/reference.md): full CLI flags, JSON fields, HTTP API with a CLI-flag → API-field table
+- [compress-media-deploy skill](skills/compress-media-deploy/SKILL.md): install, configure, expose, upgrade and troubleshoot a server
+
+## Working on the code
+
+- [AGENTS.md](AGENTS.md): architecture, commands, definition of done, rules, known pitfalls
+- [CONTRIBUTING.md](CONTRIBUTING.md): setup, project layout, guidelines, adding a language

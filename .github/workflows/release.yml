@@ -1,0 +1,81 @@
+name: Release image
+
+# Pushing a tag like v1.2.0 publishes a multi-arch image (linux/amd64 + linux/arm64) to
+#   docker.io/runsnip/compress-media   :1.2.0 :1.2 :1 :latest
+#   ghcr.io/material-atomic/compress-media (same tags)
+# and syncs DOCKERHUB.md to the Docker Hub page.
+#
+# Repository secrets needed:
+#   DOCKERHUB_USERNAME  Docker Hub user with push access to the "runsnip" namespace
+#   DOCKERHUB_TOKEN     Docker Hub access token with Read, Write, Delete scope
+#                       (Delete is only needed for the description sync)
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOCKERHUB_IMAGE: runsnip/compress-media
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match package.json version
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          [ "$GITHUB_REF_NAME" = "$expected" ] || { echo "Tag $GITHUB_REF_NAME != $expected"; exit 1; }
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_IMAGE }}
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the published image
+        run: |
+          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:${GITHUB_REF_NAME#v} compress-media --version
+          docker run -d --name app -p 4747:4747 ${{ env.DOCKERHUB_IMAGE }}:${GITHUB_REF_NAME#v}
+          timeout 30 sh -c 'until curl -sf localhost:4747/api/health; do sleep 1; done'
+
+      - uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_IMAGE }}
+          short-description: Self-hosted video, image & audio compressor — web UI, HTTP API and CLI
+          readme-filepath: ./DOCKERHUB.md

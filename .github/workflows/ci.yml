@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: node --check server.js
+      - run: node --check lib/media.js
+      - run: node --check bin/cli.js
+      - run: node --check public/app.js
+      - run: node --check public/i18n.js
+      - run: npm test
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7
+
+  s3:
+    name: Object storage (S3 via SeaweedFS)
+    runs-on: ubuntu-latest
+    env:
+      STORAGE: s3
+      S3_BUCKET: compress-media
+      S3_ENDPOINT: http://127.0.0.1:9100
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_ACCESS_KEY_ID: testkey
+      S3_SECRET_ACCESS_KEY: testsecret
+      S3_SETUP_CORS: 'true'
+      UPLOAD_PART_MB: '5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start SeaweedFS (S3 API) and create the bucket
+        run: |
+          mkdir -p /tmp/s3conf
+          echo '{"identities":[{"name":"t","credentials":[{"accessKey":"testkey","secretKey":"testsecret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' > /tmp/s3conf/s3.json
+          docker run -d --name s3 -p 9100:8333 -v /tmp/s3conf:/etc/cms chrislusf/seaweedfs:3.97 server -s3 -s3.config=/etc/cms/s3.json -dir=/data -master.volumeSizeLimitMB=256 -volume.max=100
+          node -e "
+            const { S3Client, CreateBucketCommand } = require('@aws-sdk/client-s3');
+            const s3 = new S3Client({ region: 'us-east-1', endpoint: process.env.S3_ENDPOINT, forcePathStyle: true, credentials: { accessKeyId: 'testkey', secretAccessKey: 'testsecret' } });
+            (async () => { for (let i = 0; i < 60; i++) { try { await s3.send(new CreateBucketCommand({ Bucket: 'compress-media' })); return; } catch (e) { if (/Exists|Owned/.test(e.name)) return; await new Promise(r => setTimeout(r, 1000)); } } process.exit(1); })();"
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: E2E with browsers uploading straight to the bucket
+        run: PUBLIC_URL=http://127.0.0.1:4790 npx playwright test --project=chromium --workers=1
+      - if: failure()
+        run: docker logs s3 | tail -50
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: compress-media:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test inside the container
+        run: docker run --rm -v "$PWD/test:/app/test:ro" -e HOST=127.0.0.1 compress-media:ci node --test test/smoke.test.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: E2E against the container
+        run: |
+          docker run -d --name app -p 4790:4747 -e MEDIA_CONCURRENCY=3 compress-media:ci
+          timeout 30 sh -c 'until curl -sf localhost:4790/api/health; do sleep 1; done'
+          E2E_BASE_URL=http://127.0.0.1:4790 npx playwright test --project=chromium
+      - if: failure()
+        run: docker logs app

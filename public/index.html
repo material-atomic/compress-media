@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Compress Media</title>
+  <meta name="description" content="Self-hosted video, image and audio compressor powered by ffmpeg and sharp." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e8590c'/><path d='M9 12l7-5 7 5M9 20l7 5 7-5' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M9 12l7-5 7 5M9 20l7 5 7-5" /></svg>
+      </span>
+      <div>
+        <h1>Compress Media</h1>
+        <p data-i18n="tagline">Video, images and audio — processed on your own machine, never uploaded to the internet.</p>
+      </div>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en">EN</button>
+      <button type="button" data-lang="vi">VI</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Settings -->
+    <aside class="panel settings" data-i18n-aria-label="settingsLabel" aria-label="Compression settings">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="video" aria-selected="true" data-i18n="tabVideo">Video</button>
+        <button role="tab" data-tab="image" aria-selected="false" data-i18n="tabImage">Image</button>
+        <button role="tab" data-tab="audio" aria-selected="false" data-i18n="tabAudio">Audio</button>
+      </div>
+
+      <form id="settings" autocomplete="off">
+        <!-- VIDEO -->
+        <section class="tabpanel" data-panel="video">
+          <fieldset>
+            <legend data-i18n="quality">Quality</legend>
+            <div class="seg" data-name="video.quality">
+              <button type="button" data-value="high" data-i18n="qHigh">High</button>
+              <button type="button" data-value="balanced" data-i18n="qBalanced">Balanced</button>
+              <button type="button" data-value="small" data-i18n="qSmall">Small</button>
+              <button type="button" data-value="tiny" data-i18n="qTiny">Tiny</button>
+              <button type="button" data-value="target" data-i18n="qTarget">Target MB</button>
+            </div>
+            <label class="inline-field" data-show="video.quality=target">
+              <span data-i18n="targetSize">Target size</span>
+              <span class="with-unit"><input type="number" name="video.targetMB" min="1" step="1" value="25" /> MB</span>
+            </label>
+            <p class="hint" data-show="video.quality=target" data-i18n="targetHint">Handy for upload limits (Gmail 25 MB, Discord 10 MB…). This mode always encodes on the CPU to hit the number.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend data-i18n="codec">Codec</legend>
+            <div class="seg" data-name="video.codec">
+              <button type="button" data-value="h264">H.264</button>
+              <button type="button" data-value="h265">H.265 / HEVC</button>
+            </div>
+            <p class="hint" data-show="video.codec=h264" data-i18n="h264Hint">Plays everywhere (web, Windows, chat apps…).</p>
+            <p class="hint" data-show="video.codec=h265" data-i18n="h265Hint">30–50% smaller than H.264 at the same quality. Plays on Apple devices, Android and recent Chrome.</p>
+          </fieldset>
+
+          <fieldset data-requires="hardwareEncoder">
+            <legend data-i18n="encoder">Encoder</legend>
+            <div class="seg" data-name="video.encoder">
+              <button type="button" data-value="cpu">CPU</button>
+              <button type="button" data-value="hardware" data-i18n="encHardware">Apple hardware</button>
+            </div>
+            <p class="hint" data-show="video.encoder=cpu" data-i18n="cpuHint">Smallest files, slower.</p>
+            <p class="hint" data-show="video.encoder=hardware" data-i18n="hwHint">Many times faster (VideoToolbox), slightly larger files.</p>
+          </fieldset>
+
+          <fieldset data-show="video.encoder=cpu">
+            <legend data-i18n="speed">Encoding speed</legend>
+            <div class="seg" data-name="video.speed">
+              <button type="button" data-value="veryfast" data-i18n="spFast">Fast</button>
+              <button type="button" data-value="medium" data-i18n="spMedium">Medium</button>
+              <button type="button" data-value="slow" data-i18n="spSlow">Slow · smaller</button>
+            </div>
+          </fieldset>
+
+          <div class="grid2">
+            <label class="field">
+              <span data-i18n="maxResolution">Max resolution</span>
+              <select name="video.resolution">
+                <option value="0" data-i18n="keepOriginal">Original</option>
+                <option value="2160">4K (2160p)</option>
+                <option value="1440">1440p</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+              </select>
+            </label>
+            <label class="field">
+              <span data-i18n="maxFps">Max FPS</span>
+              <select name="video.fps">
+                <option value="0" data-i18n="keepOriginal">Original</option>
+                <option value="60">60</option>
+                <option value="30">30</option>
+                <option value="24">24</option>
+                <option value="15">15</option>
+              </select>
+            </label>
+          </div>
+
+          <fieldset>
+            <legend data-i18n="audioTrack">Audio track</legend>
+            <div class="seg" data-name="video.audio">
+              <button type="button" data-value="keep" data-i18n="aKeep">Keep</button>
+              <button type="button" data-value="low" data-i18n="aLow">Reduce (mono)</button>
+              <button type="button" data-value="remove" data-i18n="aRemove">Remove</button>
+            </div>
+          </fieldset>
+        </section>
+
+        <!-- IMAGE -->
+        <section class="tabpanel" data-panel="image" hidden>
+          <fieldset>
+            <legend data-i18n="outputFormat">Output format</legend>
+            <div class="seg" data-name="image.format">
+              <button type="button" data-value="auto" data-i18n="fmtKeep">Keep</button>
+              <button type="button" data-value="jpeg">JPEG</button>
+              <button type="button" data-value="webp">WebP</button>
+              <button type="button" data-value="avif">AVIF</button>
+              <button type="button" data-value="png">PNG</button>
+            </div>
+            <p class="hint" data-show="image.format=auto" data-i18n="fmtAutoHint">HEIC becomes JPEG. Animated GIFs stay GIF.</p>
+            <p class="hint" data-show="image.format=webp" data-i18n="fmtWebpHint">~25–35% smaller than JPEG, supports animation &amp; transparency.</p>
+            <p class="hint" data-show="image.format=avif" data-i18n="fmtAvifHint">Smallest, but slower to encode and some older apps can't open it.</p>
+            <p class="hint" data-show="image.format=png" data-i18n="fmtPngHint">Reduces the colour palette (like pngquant) — great for screenshots and logos.</p>
+          </fieldset>
+
+          <label class="field">
+            <span><span data-i18n="quality">Quality</span> <output id="qOut">78</output></span>
+            <input type="range" name="image.quality" min="10" max="100" step="1" value="78" />
+          </label>
+
+          <label class="field">
+            <span data-i18n="maxDim">Max long edge</span>
+            <select name="image.maxDim">
+              <option value="0" data-i18n="keepOriginal">Original</option>
+              <option value="3840">3840 px</option>
+              <option value="2560">2560 px</option>
+              <option value="1920">1920 px</option>
+              <option value="1280">1280 px</option>
+              <option value="800">800 px</option>
+            </select>
+          </label>
+
+          <label class="check">
+            <input type="checkbox" name="image.keepMetadata" />
+            <span data-i18n="keepMeta">Keep metadata (EXIF, GPS location, capture date)</span>
+          </label>
+        </section>
+
+        <!-- AUDIO -->
+        <section class="tabpanel" data-panel="audio" hidden>
+          <fieldset>
+            <legend data-i18n="outputFormat">Output format</legend>
+            <div class="seg" data-name="audio.format">
+              <button type="button" data-value="mp3">MP3</button>
+              <button type="button" data-value="m4a">M4A (AAC)</button>
+              <button type="button" data-value="opus">Opus</button>
+            </div>
+          </fieldset>
+          <label class="field">
+            <span>Bitrate</span>
+            <select name="audio.bitrate">
+              <option value="48" data-i18n="br48">48 kbps — speech</option>
+              <option value="64">64 kbps</option>
+              <option value="96">96 kbps</option>
+              <option value="128" data-i18n="br128">128 kbps — music</option>
+              <option value="192">192 kbps</option>
+              <option value="256">256 kbps</option>
+            </select>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="audio.mono" />
+            <span data-i18n="monoHint">Convert to mono (roughly halves voice recordings)</span>
+          </label>
+        </section>
+      </form>
+
+      <p class="foot-hint" data-i18n-html="footHint">Settings apply to newly added files. For finished files, click <b>Redo</b> to apply the current settings.</p>
+    </aside>
+
+    <!-- Files -->
+    <section class="work">
+      <label id="drop" class="drop" tabindex="0">
+        <input id="fileInput" type="file" multiple hidden
+          accept="video/*,image/*,audio/*,.mov,.mkv,.heic,.heif,.m4a,.flac,.aiff,.caf,.opus" />
+        <svg class="drop-icon" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M24 31V11m0 0l-8 8m8-8l8 8" />
+          <path d="M8 29v6a4 4 0 004 4h24a4 4 0 004-4v-6" />
+        </svg>
+        <strong data-i18n="dropTitle">Drop files here</strong>
+        <span data-i18n="dropHint">or click to browse · Video (MOV, MP4…), images (JPG, PNG, HEIC, GIF…), audio (M4A, WAV…)</span>
+      </label>
+
+      <div id="summary" class="summary" hidden>
+        <div class="summary-text"></div>
+        <div class="summary-actions">
+          <button type="button" class="btn" id="downloadAll" data-i18n="downloadAll">Download all</button>
+          <button type="button" class="btn ghost" id="clearDone" data-i18n="clearList">Clear list</button>
+        </div>
+      </div>
+
+      <ul id="list" class="list" aria-live="polite"></ul>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Compress Media <span id="version"></span></span>
+    <span aria-hidden="true">·</span>
+    <span data-i18n="license">Open source · MIT License</span>
+  </footer>
+
+  <dialog id="preview">
+    <div class="preview-head">
+      <strong id="previewTitle"></strong>
+      <button type="button" class="icon-btn" id="previewClose" data-i18n-aria-label="close" aria-label="Close">✕</button>
+    </div>
+    <div id="previewBody" class="preview-body"></div>
+  </dialog>
+
+  <template id="rowTpl">
+    <li class="row">
+      <div class="thumb"></div>
+      <div class="main">
+        <div class="name"></div>
+        <div class="meta"></div>
+        <div class="bar"><i></i></div>
+      </div>
+      <div class="actions"></div>
+    </li>
+  </template>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

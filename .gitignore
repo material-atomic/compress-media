@@ -1,0 +1,9 @@
+node_modules/
+tmp/
+.env
+*.log
+.DS_Store
+.claude/settings.local.json
+e2e/.fixtures/
+test-results/
+playwright-report/

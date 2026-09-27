@@ -1,0 +1,68 @@
+# Try object-storage mode locally: Compress Media + SeaweedFS (an S3-compatible server).
+# Browsers upload straight to the bucket; the app only coordinates.
+#
+#   docker compose -f docker-compose.s3.yml up -d
+#   open http://localhost:4747
+#
+# For real deployments, point S3_* at AWS S3, Cloudflare R2, GCS, Backblaze B2… instead (see docs/deployment.md).
+
+services:
+  compress-media:
+    image: ${COMPRESS_MEDIA_IMAGE:-runsnip/compress-media:latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${COMPRESS_MEDIA_PORT:-4747}:4747"
+    environment:
+      STORAGE: s3
+      S3_BUCKET: compress-media
+      S3_ENDPOINT: http://s3:8333                 # how the app reaches the storage
+      S3_PUBLIC_ENDPOINT: http://localhost:8333   # how browsers reach it (presigned URLs)
+      S3_FORCE_PATH_STYLE: "true"
+      S3_ACCESS_KEY_ID: compress-media
+      S3_SECRET_ACCESS_KEY: change-me-please
+      S3_SETUP_CORS: "true"                       # let the page PUT parts to the bucket
+      PUBLIC_URL: http://localhost:${COMPRESS_MEDIA_PORT:-4747}
+    volumes:
+      - media-data:/data                          # ffmpeg still works on a local copy
+    depends_on:
+      bucket:
+        condition: service_completed_successfully
+
+  s3:
+    image: chrislusf/seaweedfs:3.97
+    command: server -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data -master.volumeSizeLimitMB=1024 -volume.max=0
+    ports:
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - s3-data:/data
+    configs:
+      - source: s3-identities
+        target: /etc/seaweedfs/s3.json
+
+  # Creates the bucket once the storage answers, then exits.
+  bucket:
+    image: amazon/aws-cli:2.27.0
+    environment:
+      AWS_ACCESS_KEY_ID: compress-media
+      AWS_SECRET_ACCESS_KEY: change-me-please
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 60); do
+          aws --endpoint-url http://s3:8333 s3api head-bucket --bucket compress-media 2>/dev/null && exit 0
+          aws --endpoint-url http://s3:8333 s3api create-bucket --bucket compress-media 2>/dev/null && exit 0
+          sleep 1
+        done
+        exit 1
+    depends_on:
+      - s3
+
+configs:
+  s3-identities:
+    content: |
+      {"identities":[{"name":"compress-media","credentials":[{"accessKey":"compress-media","secretKey":"change-me-please"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+
+volumes:
+  media-data:
+  s3-data:

@@ -1,0 +1,38 @@
+name: Bug report
+description: Something doesn't compress, crashes or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: file
+    attributes:
+      label: Input file
+      description: Type, size and where it came from (e.g. "MOV, 1.2 GB, QuickTime screen recording").
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings used
+      description: Codec, quality, resolution, output format…
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker / docker compose
+        - npm start on macOS
+        - npm start on Linux
+        - npm start on Windows
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs
+      description: Output of `npm start` or `docker compose logs`.
+      render: text
