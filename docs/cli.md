@@ -59,7 +59,7 @@ When two inputs would produce the same output name, the source extension is adde
 
 | Flag | Values | Default | Notes |
 |---|---|---|---|
-| `--image-format <f>` | `auto` `jpeg` `webp` `avif` `png` | `auto` | `auto` keeps the format. HEIC → JPEG, still GIF → PNG, animated GIF stays GIF. |
+| `--image-format <f>` | `auto` `jpeg` `webp` `avif` `png` | `auto` | `auto` keeps the format. HEIC → JPEG, still GIF → PNG, animated GIF stays GIF. Animations are never dropped: an animated input with `avif` becomes animated WebP, and with `jpeg`/`png` stays GIF (`results[].info.note` says so). |
 | `--image-quality <n>` | 1–100 | `78` | PNG below 100 uses a lossy palette (like pngquant). GIF uses fewer colours. |
 | `--max-dim <n>` | pixels | keep | Caps the long edge. Never upscales. |
 | `--keep-metadata` | flag | off | Keeps EXIF including **GPS location**. Orientation is always applied to the pixels. |

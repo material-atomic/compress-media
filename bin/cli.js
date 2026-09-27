@@ -271,6 +271,7 @@ function createReporter({ quiet, total }) {
         const pct = Math.round((1 - r.outputSize / r.inputSize) * 100);
         line = `✓ ${label}  ${fmtBytes(r.inputSize)} → ${fmtBytes(r.outputSize)}  (${pct >= 0 ? '−' : '+'}${Math.abs(pct)}%)  ${path.relative(process.cwd(), r.output) || r.output}`;
         if (r.larger) line += '  ⚠ not smaller than the original';
+        if (r.info?.note) line += `  (${r.info.note})`;
       }
       process.stderr.write(`${line}\n`);
       draw();
@@ -354,7 +355,8 @@ function predictExt(kind, o) {
   if (kind === 'video') return o.format === 'gif' ? 'gif' : o.format === 'webm' ? 'webm' : 'mp4';
   if (kind === 'audio') return { mp3: 'mp3', m4a: 'm4a', opus: 'ogg' }[o.format];
   if (kind === 'pdf') return 'pdf';
-  if (o.format && o.format !== 'auto') return o.format === 'jpeg' ? 'jpg' : o.format;
+  // Animated input may switch format (AVIF → WebP, JPEG/PNG → GIF), so only GIF/WebP are certain.
+  if (o.format === 'gif' || o.format === 'webp') return o.format;
   return null;
 }
 

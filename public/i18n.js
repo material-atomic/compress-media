@@ -54,6 +54,7 @@ const I18N = {
     compressingLocal: 'Compressing in this browser {pct}%',
     inBrowser: 'in browser',
     fellBack: 'Done on the server: {reason}',
+    keptAnimation: 'Animated: kept as {format}',
   },
 
   vi: {
@@ -87,6 +88,7 @@ const I18N = {
     compressingLocal: 'Đang nén trên trình duyệt {pct}%',
     inBrowser: 'trên trình duyệt',
     fellBack: 'Nén trên server: {reason}',
+    keptAnimation: 'Ảnh động: giữ dạng {format}',
     codec: 'Định dạng nén',
     h264Hint: 'Phát được ở mọi nơi (web, Windows, Zalo, Messenger…).',
     h265Hint: 'Nhỏ hơn H.264 khoảng 30–50% với cùng chất lượng. Chạy tốt trên Apple, Android, Chrome mới.',

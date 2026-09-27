@@ -656,6 +656,7 @@ function render(item) {
         el('span', {}, optionsLabel(item.kind, job.options)),
         job.local ? el('span', { class: 'badge good' }, t('inBrowser')) : null,
         item.note ? el('span', { class: 'note' }, item.note) : null,
+        job.info?.note ? el('span', { class: 'note' }, t('keptAnimation', { format: job.outputName.split('.').pop().toUpperCase() })) : null,
       );
       if (job.finishedAt && job.startedAt) meta.append(el('span', {}, t('took', { time: fmtDuration((job.finishedAt - job.startedAt) / 1000) })));
       break;

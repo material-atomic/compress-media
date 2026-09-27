@@ -127,6 +127,18 @@ test('PDF: presets shrink image-heavy documents', async (t) => {
   assert.equal((await cli('doc.pdf', '--pdf-quality', 'tiny')).code, 2);
 });
 
+test('animated GIFs stay animated even when the format asked for can\'t animate', async () => {
+  await run(ffmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=160x120:rate=10', '-t', '1', path.join(tmp, 'anim.gif')]);
+  const sharp = require('sharp');
+  for (const [format, ext] of [['avif', '.webp'], ['jpeg', '.gif'], ['png', '.gif'], ['webp', '.webp'], ['auto', '.gif']]) {
+    const r = JSON.parse((await cli('anim.gif', '--image-format', format, `--suffix=-${format}`, '--json', '-q')).stdout).results[0];
+    assert.equal(r.status, 'done', r.error);
+    assert.equal(path.extname(r.output), ext, format);
+    assert.equal((await sharp(r.output, { animated: true }).metadata()).pages, 10, `${format}: all frames kept`);
+    if (['avif', 'jpeg', 'png'].includes(format)) assert.match(r.info.note, /can't be animated/);
+  }
+});
+
 test('video option validation', async () => {
   for (const args of [['--codec', 'vp9'], ['--video-format', 'webm', '--codec', 'h264'], ['--start', 'soon'], ['--start', '5', '--end', '2']]) {
     const { code, stderr } = await cli('clip.mov', ...args);

@@ -181,7 +181,7 @@ The same objects are used by the web UI and the API. The CLI flags map onto them
     "trimEnd": "1:30"        // optional
   },
   "image": {
-    "format": "auto",        // auto | jpeg | webp | avif | png
+    "format": "auto",        // auto | jpeg | webp | avif | png — animated input stays animated (avif → webp, jpeg/png → gif; info.note)
     "quality": 78,           // 1–100
     "maxDim": 1920,          // cap the long edge; 0 = keep
     "keepMetadata": false    // true keeps EXIF incl. GPS

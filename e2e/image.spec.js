@@ -55,6 +55,17 @@ test.describe('images', () => {
     expect(meta.pages).toBeGreaterThan(1);
   });
 
+  test('an animated GIF stays animated when AVIF is chosen, and the row says so', async ({ page }, testInfo) => {
+    await pick(page, 'image.format', 'avif');
+    await addFiles(page, 'anim.gif');
+    const r = row(page, 'anim.gif');
+    await waitDone(r);
+    await expect(r.locator('.note')).toContainText('Animated: kept as WEBP');
+    const out = await download(page, r, testInfo);
+    expect(out.name).toBe('anim-compressed.webp');
+    expect((await sharp(out.file, { animated: true }).metadata()).pages).toBeGreaterThan(1);
+  });
+
   test('HEIC photos become JPEG', async ({ page }, testInfo) => {
     test.skip(!(await serverConfig(page)).heicDecoder, 'server has no HEIC decoder');
     test.skip(!fs.existsSync(fixture('photo.heic')), 'HEIC fixture is only generated on macOS');

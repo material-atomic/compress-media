@@ -1,6 +1,6 @@
 {
   "name": "compress-media",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Self-hosted video, image, audio and PDF compressor with a web UI, CLI and HTTP API — ffmpeg, sharp and Ghostscript, with login, S3 storage, a Redis queue and an in-browser mode.",
   "main": "server.js",
   "scripts": {

@@ -43,7 +43,7 @@ Metadata is copied and `+faststart` is set, so the video can play before it has 
 
 | Flag | Values | Default | Notes |
 |---|---|---|---|
-| `--image-format` | `auto` `jpeg` `webp` `avif` `png` | `auto` | `auto` keeps the format. HEIC→JPEG, still GIF→PNG, animated GIF stays GIF. |
+| `--image-format` | `auto` `jpeg` `webp` `avif` `png` | `auto` | `auto` keeps the format. HEIC→JPEG, still GIF→PNG, animated GIF stays GIF. Animated input is never flattened: `avif` → animated WebP, `jpeg`/`png` → GIF, noted in `info.note`. |
 | `--image-quality` | 1–100 | 78 | For PNG: palette quantisation below 100. For GIF: fewer colours. |
 | `--max-dim` | px | keep | Caps the long edge. Never upscales. |
 | `--keep-metadata` | flag | off | Keeps EXIF, including GPS. Orientation is always applied to the pixels. |
