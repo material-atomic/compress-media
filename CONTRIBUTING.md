@@ -38,6 +38,13 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
 docker run --rm -v "$PWD/test:/app/test:ro" -e HOST=127.0.0.1 compress-media:local node --test test/smoke.test.js
 ```
 
+### What CI runs
+
+- **Pull requests** run everything: Node 20 and 22 on Linux, macOS and Windows, E2E in Chromium, Firefox and WebKit, object storage (SeaweedFS), the Redis queue with separate workers, and the Docker image.
+- **Pushes to `main`** run a lighter set: Node 22 on Linux and Windows, E2E in Chromium.
+- **Release tags** (`vX.Y.Z`) run the full set first; the images are only published if it passes.
+- Changes that only touch documentation (`*.md`, `docs/`) don't run CI. To run the full set by hand: Actions → CI → Run workflow.
+
 ## Project layout
 
 | Path | What it is |

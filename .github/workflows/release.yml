@@ -23,7 +23,14 @@ env:
   DOCKERHUB_IMAGE: runsnip/compress-media
 
 jobs:
+  # The full test suite on the tagged commit; nothing is published unless it passes.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+
   publish:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -102,13 +109,13 @@ jobs:
       - name: Smoke test the published images
         run: |
           V=${GITHUB_REF_NAME#v}
-          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V compress-media --version
-          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V compress-media info | grep 'PDF compression:   yes'
-          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V compress-media info | grep 'Subtitles:         yes (whisper-cli), burn-in'
-          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V-nopdf compress-media info | grep 'Subtitles:         yes'
-          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V-nopdf compress-media info | grep 'PDF compression:   no'
-          docker run --rm --entrypoint sh ${{ env.DOCKERHUB_IMAGE }}:$V-nopdf -c '! command -v gs'
-          docker run -d --name app -p 4747:4747 ${{ env.DOCKERHUB_IMAGE }}:$V
+          docker run --rm "${{ env.DOCKERHUB_IMAGE }}:$V" compress-media --version
+          docker run --rm "${{ env.DOCKERHUB_IMAGE }}:$V" compress-media info | grep 'PDF compression:   yes'
+          docker run --rm "${{ env.DOCKERHUB_IMAGE }}:$V" compress-media info | grep 'Subtitles:         yes (whisper-cli), burn-in'
+          docker run --rm "${{ env.DOCKERHUB_IMAGE }}:$V-nopdf" compress-media info | grep 'Subtitles:         yes'
+          docker run --rm "${{ env.DOCKERHUB_IMAGE }}:$V-nopdf" compress-media info | grep 'PDF compression:   no'
+          docker run --rm --entrypoint sh "${{ env.DOCKERHUB_IMAGE }}:$V-nopdf" -c '! command -v gs'
+          docker run -d --name app -p 4747:4747 "${{ env.DOCKERHUB_IMAGE }}:$V"
           timeout 30 sh -c 'until curl -sf localhost:4747/api/health; do sleep 1; done'
 
       - uses: peter-evans/dockerhub-description@v4

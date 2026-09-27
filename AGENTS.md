@@ -59,6 +59,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
 
 - `npm run typecheck` and `npm test` pass.
 - `npm run test:e2e` passes, at least `--project=chromium` for UI changes.
+- Run these locally: pushes to `main` get only a light CI (Linux + Windows, Chromium), and the full matrix runs on pull requests and release tags (see CONTRIBUTING.md).
 - New behaviour has a test:
   - pipeline or CLI changes → `test/`;
   - anything a user clicks or sees → `e2e/`.
