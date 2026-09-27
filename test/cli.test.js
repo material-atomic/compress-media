@@ -43,7 +43,7 @@ before(async () => {
   fs.writeFileSync(path.join(tmp, 'album', 'readme.txt'), 'ignored');
 });
 
-after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+after(() => fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 test('--help and --version', async () => {
   const help = await cli('--help');

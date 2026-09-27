@@ -65,9 +65,10 @@ before(async () => {
   throw new Error('server did not start');
 });
 
-after(() => {
-  server?.kill('SIGTERM');
-  fs.rmSync(tmp, { recursive: true, force: true });
+after(async () => {
+  // Wait for the server to exit: on Windows a running process keeps its files locked (EBUSY).
+  if (server && server.exitCode === null) await new Promise((r) => { server.once('exit', r); server.kill('SIGTERM'); });
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 test('exposes config', async () => {

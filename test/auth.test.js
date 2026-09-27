@@ -36,9 +36,10 @@ async function start(env) {
   throw new Error(`server did not start:\n${logs}`);
 }
 
-after(() => {
-  for (const p of servers) p.kill('SIGTERM');
-  fs.rmSync(tmp, { recursive: true, force: true });
+after(async () => {
+  // Wait for the servers to exit: on Windows a running process keeps its files locked (EBUSY).
+  await Promise.all(servers.map((p) => (p.exitCode !== null ? null : new Promise((r) => { p.once('exit', r); p.kill('SIGTERM'); }))));
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 const login = (base, username, password) => fetch(`${base}/api/auth/login`, {

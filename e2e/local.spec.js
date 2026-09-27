@@ -51,7 +51,7 @@ test.describe('in-browser compression', () => {
     expect(Number(format.duration)).toBeLessThan(1.3);
   });
 
-  test('images become WebP on the device, or fall back where the browser can\'t encode WebP', async ({ page, browserName }, testInfo) => {
+  test('images become WebP on the device, or fall back where the browser can\'t encode WebP', async ({ page }, testInfo) => {
     const uploads = trackUploads(page);
     await page.getByRole('tab', { name: 'Image' }).click();
     await pick(page, 'image.format', 'webp');
@@ -62,8 +62,9 @@ test.describe('in-browser compression', () => {
     await waitDone(r);
     const out = await download(page, r, testInfo);
     expect(out.name).toBe('photo-compressed.webp');
-    if (browserName === 'webkit') {
-      // Safari's canvas can't encode WebP: the server did it, and the row says so.
+    // Either this browser encoded WebP itself (nothing uploaded), or it can't (Safari on macOS)
+    // and the server did it, with a note saying why. Which one depends on the browser build.
+    if (await r.locator('.note').count()) {
       await expect(r.locator('.note')).toContainText("can't encode WEBP");
       expect(uploads.length).toBeGreaterThan(0);
     } else {
