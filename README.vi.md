@@ -17,7 +17,7 @@ Công cụ tự host để nén **video, ảnh, âm thanh và PDF**, kèm công 
 
 ## Mục lục
 
-[Tính năng](#tính-năng) · [Mới trong 2.1](#mới-trong-21) · [Dự kiến cho 2.2](#dự-kiến-cho-22) · [Mới trong 2.0](#mới-trong-20) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
+[Tính năng](#tính-năng) · [Dự kiến cho 2.2](#dự-kiến-cho-22) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
 
 ## Tính năng
 
@@ -52,20 +52,6 @@ Công cụ tự host để nén **video, ảnh, âm thanh và PDF**, kèm công 
 - **Mở rộng quy mô**: hàng đợi Redis tùy chọn, với các worker chạy riêng.
 - **Giao diện** tiếng Anh và tiếng Việt, có chế độ sáng và tối, dùng được trên điện thoại.
 
-## Mới trong 2.1
-
-- **Tạo ảnh động.** Ghép 2–1000 ảnh tĩnh thành một **GIF** động, **WebP** động hoặc **MP4**.
-  - Giao diện web: chuyển sang **Tạo ảnh động** ở phía trên vùng thả file, thả ảnh vào, rồi sắp xếp thứ tự khung hình bằng cách kéo (hoặc bằng nút ← →).
-  - Cài đặt: thời gian mỗi khung hình, số lần lặp, kích thước tối đa, và ảnh khác tỉ lệ thì thêm viền (vừa khung) hay cắt bớt (lấp đầy).
-  - CLI: `compress-media animate shot-*.png -o demo.gif`. Thư mục được sắp theo tên, số được so theo giá trị (`shot-2` đứng trước `shot-10`).
-  - API: `POST /api/animations`.
-- **Phụ đề.** Lời nói → file phụ đề có mốc thời gian và nội dung, tải thẳng lên YouTube Studio được (Phụ đề → Tải tệp lên → Có thời gian), hoặc gắn phụ đề vào video.
-  - Nhận dạng giọng nói bằng [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Ngôn ngữ được tự nhận diện hoặc do bạn chọn, và có thể dịch phụ đề sang tiếng Anh. Model chỉ tải một lần, ở lần dùng đầu tiên (75 MB – 1,5 GB).
-  - Kết quả: `talk.vi.srt` (hoặc `.vtt`); hoặc `talk-subtitled.<đuôi>` có **track** phụ đề người xem tự bật (không mã hóa lại), hoặc **in lên hình** (MP4, cho TikTok, Reels, Zalo).
-  - Đã có phụ đề? Dùng file `.srt`/`.vtt` của bạn thay cho nhận dạng giọng nói.
-  - Giao diện web: chế độ **Phụ đề**, có **Xem & sửa** để sửa chữ rồi tạo lại kết quả. CLI: `compress-media subtitles talk.mov --lang vi`. API: `POST /api/subtitles`.
-- **Sửa lỗi: ảnh động không còn bị mất chuyển động.** Trước đây GIF hoặc WebP động bị biến thành ảnh tĩnh một khung khi định dạng đã chọn không hỗ trợ ảnh động. Giờ AVIF sẽ thành WebP động, JPEG và PNG thì giữ nguyên GIF, và kết quả có ghi chú rõ điều đó.
-
 ## Dự kiến cho 2.2
 
 Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đổi.
@@ -78,26 +64,7 @@ Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đ
 - **Dịch phụ đề** sang các ngôn ngữ khác ngoài tiếng Anh (ví dụ Anh → Việt).
 - **Ghép video.** Nối nhiều đoạn thành một video.
 
-## Mới trong 2.0
-
-- **Đăng nhập có sẵn, mặc định bật.** Đặt tên đăng nhập (hoặc email) và mật khẩu qua `AUTH_USERNAME` / `AUTH_PASSWORD`, hoặc tắt bằng `AUTH_ENABLED=false`. Script đăng nhập bằng HTTP Basic hoặc API token.
-- **Thêm định dạng video**
-  - Cắt đoạn theo thời điểm bắt đầu và kết thúc.
-  - **AV1** trong MP4.
-  - **WebM** (VP9 hoặc AV1 + Opus).
-  - **GIF động** từ bất kỳ video nào.
-- **Bám dung lượng mục tiêu tốt hơn.** Chế độ "Theo MB" mã hóa hai lượt, nên file ra sát giới hạn hơn.
-- **Nén bằng GPU trên Linux và Windows**: NVIDIA NVENC, Intel Quick Sync, VA-API, AMD AMF, tự nhận diện. VideoToolbox trên macOS vẫn giữ.
-- **Nén PDF** với các mức từ "nhỏ nhất" tới "chất lượng in" (Ghostscript).
-- **Nén ngay trên trình duyệt.** Một chế độ tùy chọn: video, âm thanh và ảnh được nén trên chính thiết bị người dùng bằng WebCodecs, hoàn toàn không upload.
-- **Tải tất cả thành một file ZIP.**
-- **Cho việc tích hợp**
-  - Tiến độ theo thời gian thực qua Server-Sent Events.
-  - Webhook có chữ ký HMAC khi job xong.
-  - Xem trạng thái nhiều job trong một lần gọi.
-- **Mở rộng quy mô.** Hàng đợi Redis/BullMQ tùy chọn, để nhiều web server và các worker riêng (`compress-media worker`) cùng chia tải.
-
-**Nâng cấp từ 1.x:** bản 2.0 bật đăng nhập mặc định. Các script đang dùng sẽ cần thông tin đăng nhập (hoặc đặt `AUTH_ENABLED=false`) sau khi cập nhật.
+Những gì thay đổi qua từng phiên bản, kể cả lưu ý khi nâng cấp: [CHANGELOG.md](CHANGELOG.md) (tiếng Anh).
 
 ## Các cách dùng
 

@@ -17,7 +17,7 @@ A self-hosted compressor for **videos, images, audio and PDFs**, with a GIF make
 
 ## Contents
 
-[Features](#features) · [New in 2.1](#new-in-21) · [Planned for 2.2](#planned-for-22) · [New in 2.0](#new-in-20) · [Ways to use it](#ways-to-use-it) · [Quick start](#quick-start) · [Web UI](#web-ui) · [CLI](#cli) · [HTTP API](#http-api) · [Configuration](#configuration) · [Object storage](#object-storage) · [Platforms](#platform-support) · [AI agents](#use-with-ai-agents) · [Security](#security) · [Development](#development) · [License](#license)
+[Features](#features) · [Planned for 2.2](#planned-for-22) · [Ways to use it](#ways-to-use-it) · [Quick start](#quick-start) · [Web UI](#web-ui) · [CLI](#cli) · [HTTP API](#http-api) · [Configuration](#configuration) · [Object storage](#object-storage) · [Platforms](#platform-support) · [AI agents](#use-with-ai-agents) · [Security](#security) · [Development](#development) · [License](#license)
 
 ## Features
 
@@ -52,20 +52,6 @@ A self-hosted compressor for **videos, images, audio and PDFs**, with a GIF make
 - **Scales out**: an optional Redis queue with separate workers.
 - **Web UI** in English and Vietnamese, with light and dark themes. It works on phones.
 
-## New in 2.1
-
-- **Make an animation.** Turn 2–1000 still images into one animated **GIF**, animated **WebP** or **MP4**.
-  - Web UI: switch to **Make an animation** above the file area, drop images, and put the frames in order by dragging (or with ← →).
-  - Settings: time per frame, loop count, maximum size, and whether images of another shape get borders (fit) or are cropped (fill).
-  - CLI: `compress-media animate shot-*.png -o demo.gif`. Folders are sorted by name, with numbers in order (`shot-2` before `shot-10`).
-  - API: `POST /api/animations`.
-- **Subtitles.** Speech → a subtitle file with times and text, ready for YouTube Studio (Subtitles → Upload file → With timing), or subtitles put into the video.
-  - Speech recognition by [whisper.cpp](https://github.com/ggml-org/whisper.cpp). The language is detected or chosen, and the subtitles can be translated into English. Models are downloaded once, on first use (75 MB – 1.5 GB).
-  - Results: `talk.vi.srt` (or `.vtt`); or `talk-subtitled.<ext>` with a **track** viewers turn on (no re-encode), or **burned in** (MP4, for TikTok, Reels, Zalo).
-  - Have subtitles already? Use your own `.srt`/`.vtt` instead of speech recognition.
-  - Web UI: the **Subtitles** mode, with **View & edit** to fix the text and make the result again. CLI: `compress-media subtitles talk.mov --lang vi`. API: `POST /api/subtitles`.
-- **Fix: animated images are never flattened.** An animated GIF or WebP used to become a single frame when the chosen image format can't animate. Now AVIF becomes animated WebP, JPEG and PNG keep the GIF, and the result says so.
-
 ## Planned for 2.2
 
 Next up; not built yet, and details may change.
@@ -78,26 +64,7 @@ Next up; not built yet, and details may change.
 - **Translate subtitles** into other languages, not only English (for example English → Vietnamese).
 - **Join videos.** Put several clips together into one.
 
-## New in 2.0
-
-- **Built-in login, on by default.** Set the username (or email) and password with `AUTH_USERNAME` / `AUTH_PASSWORD`, or turn it off with `AUTH_ENABLED=false`. Scripts sign in with HTTP Basic or an API token.
-- **More video output**
-  - Trim to a start and end time.
-  - **AV1** in MP4.
-  - **WebM** (VP9 or AV1 + Opus).
-  - **Animated GIF** from any video.
-- **Better size targeting.** Two-pass encoding for "target size in MB", so files land closer to the limit.
-- **GPU encoding on Linux and Windows**: NVIDIA NVENC, Intel Quick Sync, VA-API and AMD AMF, detected automatically. VideoToolbox on macOS stays.
-- **PDF compression** with presets from "smallest" to "print quality" (Ghostscript).
-- **Compress in the browser.** An optional mode where videos, audio and images are compressed on the user's own device with WebCodecs, so nothing is uploaded at all.
-- **Download everything as one ZIP.**
-- **For integrations**
-  - Live progress over Server-Sent Events.
-  - Webhooks signed with HMAC when a job finishes.
-  - Batch status for many jobs in one call.
-- **Scale out.** An optional Redis/BullMQ queue, so several web servers and separate workers (`compress-media worker`) share the load.
-
-**Upgrading from 1.x:** 2.0 turns login on by default. Existing scripts need credentials (or `AUTH_ENABLED=false`) after the update.
+What changed in each release, including upgrade notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Ways to use it
 

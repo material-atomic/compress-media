@@ -94,6 +94,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
   - Runtime strings use `t('key', vars)` and need an entry in every language in `public/i18n.js`.
 - **Frontend** is plain browser JS with no build and no dependencies. Keep it that way.
 - **Docs are part of the change.** They are written for other people, so they must match the code exactly.
+- **README describes the current version and what's planned, nothing else.** Release history ("New in X", upgrade notes) goes in `CHANGELOG.md` only; planned work goes in the README's "Planned for …" section, and moves out of it when it ships.
 
   | When you change… | Also update |
   |---|---|
