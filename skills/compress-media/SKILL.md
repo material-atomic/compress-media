@@ -1,11 +1,11 @@
 ---
 name: compress-media
-description: Shrink video, image, audio and PDF files with Compress Media, through its local CLI or a running Compress Media server's HTTP API. Examples are QuickTime/screen recordings (MOV→MP4/WebM/GIF, trimmed), photos (JPG/PNG/HEIC→JPEG/WebP/AVIF), WAV/M4A audio and image-heavy PDFs (CVs, portfolios, reports). Use when the user wants files smaller, needs to fit an upload or email limit ("under 25 MB"), wants a clip or GIF cut from a recording, wants images optimized for the web, or wants photo GPS/EXIF metadata removed. For installing or operating the server itself, use the compress-media-deploy skill.
+description: Shrink video, image, audio and PDF files with Compress Media, through its local CLI or a running Compress Media server's HTTP API. Examples are QuickTime/screen recordings (MOV→MP4/WebM/GIF, trimmed), photos (JPG/PNG/HEIC→JPEG/WebP/AVIF), WAV/M4A audio and image-heavy PDFs (CVs, portfolios, reports). Use when the user wants files smaller, needs to fit an upload or email limit ("under 25 MB"), wants a clip or GIF cut from a recording, wants images optimized for the web, wants photo GPS/EXIF metadata removed, wants several screenshots or photos turned into one animated GIF, WebP or MP4, or wants subtitles/captions for a video (speech → SRT/VTT, e.g. for YouTube, or subtitles burned into a video for TikTok/Reels). For installing or operating the server itself, use the compress-media-deploy skill.
 ---
 
 # compress-media
 
-`compress-media` compresses media with ffmpeg (video, audio) and sharp (images). The **CLI** works on local files, needs no server, and never sends files anywhere. Results are written **next to the input** as `<name>-compressed.<ext>`. Originals are never modified.
+`compress-media` compresses media with ffmpeg (video, audio) and sharp (images), and makes subtitles from speech with whisper.cpp. The **CLI** works on local files, needs no server, and never sends files anywhere. Results are written **next to the input** as `<name>-compressed.<ext>`. Originals are never modified.
 
 Prefer the CLI for files on this machine. Use the [HTTP API](#using-a-server-instead) only when the user points you at a Compress Media server (a URL), or the files must be processed there.
 
@@ -28,7 +28,7 @@ If none works, tell the user it isn't installed and point them to the repo READM
 
 ```bash
 compress-media probe <files...> --json   # size, duration, resolution, fps, codecs, per file
-compress-media info --json               # hardwareEncoder/hardwareName, av1, webm, pdf, heicDecoder
+compress-media info --json               # hardwareEncoder/hardwareName, av1, webm, pdf, heicDecoder, whisper, burnSubtitles, subtitleModels
 ```
 
 Use `probe` to choose settings, for example:
@@ -58,6 +58,10 @@ Use `probe` to choose settings, for example:
 | Music | `--audio-format m4a --bitrate 128` or higher |
 | PDF to email or upload (CV, portfolio, report) | `--pdf-quality ebook` (150 dpi images); `screen` is smaller but blurry in print; `printer` keeps 300 dpi |
 | Scanned or photo-heavy PDF that needs to be tiny | `--pdf-quality screen`, plus `--grayscale` if colour doesn't matter |
+| A GIF / slideshow from several screenshots or photos | `compress-media animate <images or folder> …`, see [Make an animation](#make-an-animation) |
+| Subtitles for a video, YouTube captions, a transcript with times | `compress-media subtitles <video> --lang <code>` → `<name>.<lang>.srt`, see [Subtitles](#subtitles) |
+| Burn subtitles into a video (TikTok, Reels, Zalo, players without subtitle support) | `compress-media subtitles <video> --embed burn [--font-size large]` (add `--srt <file>` to use existing subtitles) |
+| Add a subtitle track viewers can turn on | `compress-media subtitles <video> --embed track` (no re-encode) |
 
 Defaults when the user gives no preference:
 
@@ -82,6 +86,42 @@ compress-media <files or folders> [flags] --json -q
 - `--skip-larger` discards results that aren't smaller, so the user can keep the original.
 
 **Timing:** images take well under a second each. On the CPU, 1080p video encodes at roughly 0.5–2× real time, so a 10-minute recording can take 5–20 minutes. `--hw` or `--speed fast` is much quicker. For anything longer than a couple of minutes, run the command in the background and poll, instead of blocking on a short tool timeout. Ctrl+C / SIGTERM cleans up partial files.
+
+### Make an animation
+
+`animate` turns 2–1000 still images into **one** animated GIF, animated WebP or MP4. It's a separate command, and none of the compress flags above apply to it.
+
+```bash
+compress-media animate shot-*.png --delay 700 --max-dim 1200 -o walkthrough.gif --json -q
+compress-media animate frames/ --format webp --fps 2             # a folder, sorted by name
+```
+
+- Frames are used in the order given. A folder contributes its images sorted by name, with numbers compared numerically (`shot-2` before `shot-10`); add `-r` for sub-folders. Earlier `*-animated.gif` / `*-animated.webp` results in a folder are skipped.
+- The output is `<first-image-name>-animated.<gif|webp|mp4>` next to the first image. `-o` takes a file (`demo.gif`) or a folder.
+- The canvas has the first image's shape, with the long edge capped by `--max-dim` (default 800). Images of another shape get borders (`--fit contain`, colour `--background`) or are cropped (`--fit cover`).
+- Pick the format from where it will be shown: `gif` opens anywhere (email, chat, issues) but is the largest; `webp` is much smaller and plays in modern browsers; `mp4` is the smallest, has no transparency and ignores `--loop`.
+
+Flags: `--format gif|webp|mp4` (default gif) · `--delay <ms>` (500) or `--fps <n>`, not both · `--loop <n>` (0 = forever) · `--max-dim <n>` (800) · `--fit contain|cover` · `--background <hex>` (#ffffff) · `--quality 1–100` (80) · `--overwrite`, `--json`, `-q`. The report has the usual shape, with one result of `kind: "animation"`, its frames in `inputs`, and `info: { frames, width, height, durationMs, loop }`.
+
+### Subtitles
+
+`subtitles` listens to the speech in videos or audio (whisper.cpp) and writes a subtitle file with times and text, or puts subtitles into the video. It's a separate command; the compress flags don't apply.
+
+```bash
+compress-media subtitles talk.mov --lang vi --json -q                              # → talk.vi.srt
+compress-media subtitles talk.mov --srt talk.srt --embed burn --font-size large    # your subtitles, drawn in → talk-subtitled.mp4
+compress-media subtitles lectures/ -r --model large-v3-turbo --format vtt          # a folder, most accurate model
+```
+
+- **Check first:** `info --json` → `whisper` (the whisper.cpp command, or `null`) and `burnSubtitles`. Without whisper.cpp only `--srt` works; tell the user to install it (`brew install whisper-cpp`, the distro's `whisper.cpp` package) or use the Docker image.
+- **The first run downloads a speech model** (once, into `~/.cache/compress-media/models`): `tiny` 75 MB, `base` 142 MB, `small` 466 MB (default), `medium` 1.5 GB, `large-v3-turbo` 547 MB (most accurate). Tell the user before a large download. `info --json` → `subtitleModels[].installed` shows what's there.
+- **Pass `--lang`** when you know the language (`vi`, `en`, `ja`…, ISO 639-1); detection can guess wrong on short clips. For Vietnamese and other non-English speech use `small` or better. `--translate` gives English subtitles from any language (not with `large-v3-turbo`).
+- **Outputs:** `--embed none` (default) → `<name>.<lang>.srt` (`--format vtt` → `.vtt`), which YouTube Studio takes under Subtitles → Upload file → With timing. `--embed track` → `<name>-subtitled.<ext>` with a selectable track, no re-encode (MP4/MOV/WebM/MKV kept, others → MKV). `--embed burn` → `<name>-subtitled.mp4`, re-encoded, text drawn into the picture.
+- **Own subtitles:** `--srt file.srt|.vtt` skips speech recognition (one input at a time). With the default `--embed none` and no `--lang`, the output is `<name>.srt` — the same name as a `talk.srt` given for `talk.mov`. Pass `--lang <code>` (→ `talk.vi.srt`) or `-o <dir>`, and never add `--overwrite` there, or the user's file is replaced.
+- **Timing:** bigger models are slower (`medium` most of all); `--embed burn` re-encodes the whole video. Run long videos in the background and poll.
+- Each JSON result has `kind: "subtitles"` and `info: { cues, language, spokenLanguage, model, duration, embed, words }`. `cues: 0` means no speech was recognised.
+
+Flags: `--lang auto|<code>` · `--translate` · `--model tiny|base|small|medium|large-v3-turbo` · `--format srt|vtt` · `--embed none|track|burn` · `--font-size small|medium|large` (burn) · `--srt <file>` · `-o <dir>`, `-r`, `--overwrite`, `--json`, `-q`.
 
 ## 5. Read the report
 
@@ -114,6 +154,9 @@ When the user gives you a Compress Media server URL (their own instance), compre
 - Otherwise follow [reference.md → HTTP API](reference.md#http-api-web-ui-server): one request for small files, chunked upload for large ones.
 - **Looking before you compress:** the API has no probe endpoint. If the CLI is also available, `compress-media probe <file> --json` works locally without sending anything. Otherwise choose from the goal table, and read the source details from the finished job's `info` field.
 
+- **Animations** have their own endpoint: `POST /api/animations` with the frames in order. See [reference.md → Animations](reference.md#animations).
+- **Subtitles** too: `POST /api/subtitles` with the video (and optionally a `subtitles` file), then `GET /api/jobs/:id/subtitles?format=srt` for the text. Check `/api/config` → `whisper` first. See [reference.md → Subtitles](reference.md#subtitles).
+
 The API takes option **objects**, not CLI flags. For example, `--max-res 1080 --fps 30` becomes `{"video":{"resolution":1080,"fps":30}}`, and `--image-format webp --max-dim 1920` becomes `{"image":{"format":"webp","maxDim":1920}}`. The full mapping is in reference.md.
 
 ## Rules
@@ -145,6 +188,12 @@ The API takes option **objects**, not CLI flags. For example, `--max-res 1080 --
 | API: `415 Unsupported file type` / `413` | Wrong file type (or a PDF on a server without Ghostscript), or the server's `MAX_UPLOAD_MB` is lower than the file. |
 | API: `401 Authentication required` / `429` | Missing or wrong credentials, or too many failed logins (wait 15 minutes). |
 | `PDF compression needs Ghostscript` | Install it (`brew install ghostscript`, `apt install ghostscript`) or use the Docker image. |
+| `animate needs at least 2 images` / `use either --delay or --fps` | Give at least two images (a folder without `-r` skips its sub-folders), and choose one of `--delay` and `--fps`. |
+| `Speech recognition needs whisper.cpp` / API `400` "Speech recognition is not installed" | whisper.cpp isn't installed. `brew install whisper-cpp` (macOS), the `whisper.cpp` package (Linux), `WHISPER_PATH`, or the Docker image. Own `.srt`/`.vtt` files still work. |
+| Subtitles: long pause at the start of the first run | The speech model is downloading (`small` is 466 MB). It happens once. `The speech model "…" isn't installed` means downloads are off (`WHISPER_DOWNLOAD=false`): put the `ggml-*.bin` file in the models folder. |
+| Subtitles in the wrong language or gibberish | Pass `--lang <code>` (API: `subtitles.language`), and use `small` or better for non-English speech. |
+| `can't burn in subtitles (it needs libass)` | This ffmpeg lacks libass. Use `--embed track`, or the bundled ffmpeg / Docker image. |
+| `Subtitles can only be added to a video` | `--embed track/burn` on an audio file. Use `--embed none`. |
 | `AV1 encoding is not available` | This ffmpeg build lacks an AV1 encoder. Use `--codec h265`, or WebM with VP9. |
 
 The full flag list, the HTTP API of the web UI, and the JSON field reference are in [reference.md](reference.md).

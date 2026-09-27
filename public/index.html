@@ -50,10 +50,16 @@
   </section>
 
   <main class="layout">
+    <!-- What to do: the settings and the file area both follow this -->
+    <div class="modes" role="tablist" data-i18n-aria-label="modeLabel" aria-label="Mode">
+      <button role="tab" data-mode="compress" aria-selected="true" data-i18n="modeCompress">Compress files</button>
+      <button role="tab" data-mode="animate" aria-selected="false" data-i18n="modeAnimate">Make an animation</button>
+      <button role="tab" data-mode="subtitles" aria-selected="false" data-i18n="modeSubtitles">Subtitles</button>
+    </div>
     <!-- Settings -->
     <aside class="panel settings" data-i18n-aria-label="settingsLabel" aria-label="Compression settings">
       <!-- Only offered when the browser has WebCodecs (local.js) -->
-      <fieldset class="where" data-requires="webcodecs">
+      <fieldset class="where" data-requires="webcodecs" data-show="general.mode=compress">
         <legend data-i18n="whereLabel">Compress on</legend>
         <div class="seg" data-name="general.where">
           <button type="button" data-value="server" data-i18n="whereServer">Server</button>
@@ -62,10 +68,12 @@
         <p class="hint" data-show="general.where=browser" data-i18n="whereBrowserHint">Files never leave this device. Uses your CPU/GPU; what the browser can't do (GIF, PDF, HEIC, AVIF, MP3…) still goes to the server.</p>
       </fieldset>
       <div class="tabs" role="tablist">
-        <button role="tab" data-tab="video" aria-selected="true" data-i18n="tabVideo">Video</button>
-        <button role="tab" data-tab="image" aria-selected="false" data-i18n="tabImage">Image</button>
-        <button role="tab" data-tab="audio" aria-selected="false" data-i18n="tabAudio">Audio</button>
-        <button role="tab" data-tab="pdf" aria-selected="false" data-requires="pdf">PDF</button>
+        <button role="tab" data-tab="video" aria-selected="true" data-show="general.mode=compress" data-i18n="tabVideo">Video</button>
+        <button role="tab" data-tab="image" aria-selected="false" data-show="general.mode=compress" data-i18n="tabImage">Image</button>
+        <button role="tab" data-tab="audio" aria-selected="false" data-show="general.mode=compress" data-i18n="tabAudio">Audio</button>
+        <button role="tab" data-tab="pdf" aria-selected="false" data-show="general.mode=compress" data-requires="pdf">PDF</button>
+        <button role="tab" data-tab="animation" aria-selected="false" data-show="general.mode=animate" hidden data-i18n="tabAnimation">Animation</button>
+        <button role="tab" data-tab="subtitles" aria-selected="false" data-show="general.mode=subtitles" hidden data-i18n="tabSubtitles">Subtitles</button>
       </div>
 
       <form id="settings" autocomplete="off">
@@ -274,6 +282,138 @@
             <span data-i18n="grayscale">Convert to grayscale</span>
           </label>
         </section>
+        <!-- ANIMATION (Make an animation mode) -->
+        <section class="tabpanel" data-panel="animation" hidden>
+          <fieldset>
+            <legend data-i18n="outputFormat">Output format</legend>
+            <div class="seg" data-name="animation.format">
+              <button type="button" data-value="gif">GIF</button>
+              <button type="button" data-value="webp">WebP</button>
+              <button type="button" data-value="mp4">MP4</button>
+            </div>
+            <p class="hint" data-show="animation.format=gif" data-i18n="animGifHint">Opens anywhere, including email and chat. Largest files, 256 colours.</p>
+            <p class="hint" data-show="animation.format=webp" data-i18n="animWebpHint">Much smaller than GIF with full colour. Plays in every modern browser.</p>
+            <p class="hint" data-show="animation.format=mp4" data-i18n="animMp4Hint">Smallest; best for social media and slideshows. No transparency, no loop setting.</p>
+          </fieldset>
+
+          <div class="grid2">
+            <label class="field">
+              <span data-i18n="frameDuration">Each frame (ms)</span>
+              <input type="number" name="animation.delay" min="20" max="60000" step="10" value="500" />
+            </label>
+            <label class="field" data-show="animation.format!=mp4">
+              <span data-i18n="loop">Loop</span>
+              <select name="animation.loop">
+                <option value="0" data-i18n="loopForever">Forever</option>
+                <option value="1" data-i18n="loopOnce">Once</option>
+                <option value="2">2×</option>
+                <option value="3">3×</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="field">
+            <span data-i18n="animMaxDim">Max size</span>
+            <select name="animation.maxDim">
+              <option value="0" data-i18n="keepOriginal">Original</option>
+              <option value="1920">1920 px</option>
+              <option value="1280">1280 px</option>
+              <option value="800">800 px</option>
+              <option value="480">480 px</option>
+              <option value="320">320 px</option>
+            </select>
+          </label>
+
+          <fieldset>
+            <legend data-i18n="fitLabel">Images of another shape</legend>
+            <div class="seg" data-name="animation.fit">
+              <button type="button" data-value="contain" data-i18n="fitContain">Fit (add borders)</button>
+              <button type="button" data-value="cover" data-i18n="fitCover">Fill (crop)</button>
+            </div>
+            <label class="inline-field" data-show="animation.fit=contain">
+              <span data-i18n="background">Border colour</span>
+              <input type="color" name="animation.background" value="#ffffff" />
+            </label>
+          </fieldset>
+
+          <label class="field">
+            <span><span data-i18n="quality">Quality</span> <output id="animQOut">80</output></span>
+            <input type="range" name="animation.quality" min="10" max="100" step="1" value="80" />
+          </label>
+        </section>
+        <!-- SUBTITLES (Subtitles mode) -->
+        <section class="tabpanel" data-panel="subtitles" hidden>
+          <p class="hint warn" id="noWhisper" hidden data-i18n="noWhisperHint">Speech recognition (whisper.cpp) isn't installed on this server. You can still add your own .srt or .vtt files to videos.</p>
+          <fieldset>
+            <legend data-i18n="subResult">Result</legend>
+            <div class="seg" data-name="subtitles.embed">
+              <button type="button" data-value="none" data-i18n="subFile">Subtitle file</button>
+              <button type="button" data-value="track" data-i18n="subTrack">Video + track</button>
+              <button type="button" data-value="burn" data-requires="burnSubtitles" data-i18n="subBurn">Burned in</button>
+            </div>
+            <p class="hint" data-show="subtitles.embed=none" data-i18n="subFileHint">A file with times and text, e.g. for YouTube Studio → Subtitles → Upload file → With timing.</p>
+            <p class="hint" data-show="subtitles.embed=track" data-i18n="subTrackHint">The same video with subtitles viewers can turn on and off. Fast: the video isn't re-encoded.</p>
+            <p class="hint" data-show="subtitles.embed=burn" data-i18n="subBurnHint">Text drawn into the picture, so it shows everywhere (TikTok, Reels, Zalo…). Re-encodes the video.</p>
+          </fieldset>
+
+          <fieldset data-show="subtitles.embed=none">
+            <legend data-i18n="subFormat">File format</legend>
+            <div class="seg" data-name="subtitles.format">
+              <button type="button" data-value="srt">SRT</button>
+              <button type="button" data-value="vtt">WebVTT</button>
+            </div>
+          </fieldset>
+
+          <fieldset data-show="subtitles.embed=burn">
+            <legend data-i18n="subFontSize">Text size</legend>
+            <div class="seg" data-name="subtitles.fontSize">
+              <button type="button" data-value="small" data-i18n="sizeSmall">Small</button>
+              <button type="button" data-value="medium" data-i18n="sizeMedium">Medium</button>
+              <button type="button" data-value="large" data-i18n="sizeLarge">Large</button>
+            </div>
+          </fieldset>
+
+          <label class="field">
+            <span data-i18n="spokenLanguage">Spoken language</span>
+            <select name="subtitles.language">
+              <option value="auto" data-i18n="langAuto">Detect automatically</option>
+              <option value="vi">Tiếng Việt</option>
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="th">ไทย</option>
+              <option value="id">Bahasa Indonesia</option>
+              <option value="ms">Bahasa Melayu</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="es">Español</option>
+              <option value="pt">Português</option>
+              <option value="it">Italiano</option>
+              <option value="ru">Русский</option>
+              <option value="hi">हिन्दी</option>
+              <option value="ar">العربية</option>
+            </select>
+          </label>
+
+          <label class="check">
+            <input type="checkbox" name="subtitles.translate" />
+            <span data-i18n="translateEn">Translate into English subtitles</span>
+          </label>
+
+          <label class="field">
+            <span data-i18n="speechModel">Accuracy (speech model)</span>
+            <select name="subtitles.model" id="modelSelect">
+              <option value="base" data-i18n="modelBase">Fast · base</option>
+              <option value="small" data-i18n="modelSmall">Balanced · small</option>
+              <option value="large-v3-turbo" data-i18n="modelTurbo">Best · large-v3-turbo</option>
+              <option value="medium" data-i18n="modelMedium">Very slow · medium</option>
+              <option value="tiny" data-i18n="modelTiny">Fastest, rough · tiny</option>
+            </select>
+          </label>
+          <p class="hint" data-i18n="modelHint">A model is downloaded once, the first time it's used. For Vietnamese, use Balanced or Best.</p>
+          <p class="hint" data-i18n-html="ownSubsHint">Have subtitles already? Drop the <b>.srt</b> or <b>.vtt</b> together with the video (same name, e.g. talk.mov + talk.srt) to use it instead of speech recognition.</p>
+        </section>
       </form>
 
       <p class="foot-hint" data-i18n-html="footHint">Settings apply to newly added files. For finished files, click <b>Redo</b> to apply the current settings.</p>
@@ -283,14 +423,31 @@
     <section class="work">
       <label id="drop" class="drop" tabindex="0">
         <input id="fileInput" type="file" multiple hidden
-          accept="video/*,image/*,audio/*,.mov,.mkv,.heic,.heif,.m4a,.flac,.aiff,.caf,.opus,.pdf,application/pdf" />
+          accept="video/*,image/*,audio/*,.mov,.mkv,.heic,.heif,.m4a,.flac,.aiff,.caf,.opus,.pdf,application/pdf,.srt,.vtt" />
         <svg class="drop-icon" viewBox="0 0 48 48" aria-hidden="true">
           <path d="M24 31V11m0 0l-8 8m8-8l8 8" />
           <path d="M8 29v6a4 4 0 004 4h24a4 4 0 004-4v-6" />
         </svg>
-        <strong data-i18n="dropTitle">Drop files here</strong>
-        <span data-i18n="dropHint">or click to browse · Video (MOV, MP4…), images (JPG, PNG, HEIC, GIF…), audio (M4A, WAV…), PDF</span>
+        <strong data-i18n="dropTitle" data-show="general.mode=compress">Drop files here</strong>
+        <span data-i18n="dropHint" data-show="general.mode=compress">or click to browse · Video (MOV, MP4…), images (JPG, PNG, HEIC, GIF…), audio (M4A, WAV…), PDF</span>
+        <strong data-i18n="dropFramesTitle" data-show="general.mode=animate" hidden>Drop the images for your animation</strong>
+        <span data-i18n="dropFramesHint" data-show="general.mode=animate" hidden>or click to browse · JPG, PNG, WebP, HEIC… in the order you want (you can reorder them below)</span>
+        <strong data-i18n="dropSubsTitle" data-show="general.mode=subtitles" hidden>Drop videos to make subtitles</strong>
+        <span data-i18n="dropSubsHint" data-show="general.mode=subtitles" hidden>or click to browse · MOV, MP4… or audio · add a .srt/.vtt with the same name to use your own</span>
       </label>
+
+      <!-- Make an animation: the frames, in order -->
+      <section id="animator" class="animator" data-show="general.mode=animate" hidden>
+        <div class="animator-head">
+          <span id="framesInfo" class="frames-info"></span>
+          <div class="summary-actions">
+            <button type="button" class="btn ghost" id="clearFrames" data-i18n="clearFrames">Clear</button>
+            <button type="button" class="btn" id="createAnimation" data-i18n="createAnimation" disabled>Create animation</button>
+          </div>
+        </div>
+        <ol id="frames" class="frames" aria-live="polite"></ol>
+        <p class="hint" data-i18n="framesHint">Drag frames to reorder them, or use ← →. Animations are made on the server.</p>
+      </section>
 
       <div id="summary" class="summary" hidden>
         <div class="summary-text"></div>

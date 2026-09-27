@@ -12,7 +12,9 @@ const DEFAULTS = {
   image: { format: 'auto', quality: 78, maxDim: '0', keepMetadata: false },
   audio: { format: 'mp3', bitrate: '128', mono: false },
   pdf: { quality: 'ebook', grayscale: false },
-  general: { where: 'server' },
+  subtitles: { embed: 'none', format: 'srt', fontSize: 'medium', language: 'auto', translate: false, model: 'small' },
+  animation: { format: 'gif', delay: 500, loop: '0', maxDim: '800', fit: 'contain', background: '#ffffff', quality: 80 },
+  general: { where: 'server', mode: 'compress' },
 };
 const STORAGE_KEY = 'compress-media:settings';
 
@@ -51,6 +53,7 @@ function normalizeSettings() {
   if (v.format === 'gif' && v.quality === 'target') v.quality = 'balanced';
   if (config.av1 === false && v.codec === 'av1') v.codec = v.format === 'webm' ? 'vp9' : 'h264';
   if (config.webm === false && v.format === 'webm') v.format = 'mp4';
+  if (config.burnSubtitles === false && settings.subtitles.embed === 'burn') settings.subtitles.embed = 'track';
 }
 
 /**
@@ -84,6 +87,11 @@ function syncForm() {
   }
   for (const el of document.querySelectorAll('[data-show], [data-requires]')) el.hidden = !visible(el);
   document.getElementById('qOut').textContent = settings.image.quality;
+  document.getElementById('animQOut').textContent = settings.animation.quality;
+  for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-selected', String(b.dataset.mode === settings.general.mode));
+  // The selected settings tab must be one that's showing in this mode.
+  const current = document.querySelector('[data-tab][aria-selected="true"]');
+  if (current?.hidden) selectTab({ animate: 'animation', subtitles: 'subtitles' }[settings.general.mode] || 'video');
 }
 
 settingsPanel.addEventListener('click', (e) => {
@@ -97,11 +105,11 @@ form.addEventListener('input', (e) => {
 });
 form.addEventListener('submit', (e) => e.preventDefault());
 
-for (const tab of document.querySelectorAll('[role="tab"]')) {
+for (const tab of document.querySelectorAll('[data-tab]')) {
   tab.addEventListener('click', () => selectTab(tab.dataset.tab));
 }
 function selectTab(name) {
-  for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
+  for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
   for (const p of document.querySelectorAll('.tabpanel')) p.hidden = p.dataset.panel !== name;
 }
 
@@ -118,6 +126,9 @@ async function loadConfig() {
     normalizeSettings();
     syncForm();
     applyHardwareLabel();
+    applyModelLabels();
+    document.getElementById('noWhisper').hidden = !!c.whisper;
+    renderFrames();
   } catch { /* shown as errors on the rows when used */ }
 }
 function applyHardwareLabel() {
@@ -125,6 +136,21 @@ function applyHardwareLabel() {
   if (button && config.hardwareName) button.textContent = `${t('encHardware')} · ${HW_NAMES[config.hardwareName] || config.hardwareName}`;
 }
 document.addEventListener('langchange', applyHardwareLabel);
+
+/** Speech model choices show their download size, or that they're already on the server. */
+function applyModelLabels() {
+  for (const m of config.subtitleModels || []) {
+    const opt = document.querySelector(`#modelSelect option[value="${m.name}"]`);
+    if (!opt) continue;
+    opt.dataset.base ??= opt.textContent;
+    opt.textContent = `${opt.dataset.base} · ${m.installed ? t('modelReady') : `${m.mb >= 1000 ? `${(m.mb / 1000).toFixed(1)} GB` : `${m.mb} MB`}`}`;
+  }
+}
+document.addEventListener('langchange', () => {
+  // i18n.js re-applied the plain labels; add the sizes again.
+  for (const opt of document.querySelectorAll('#modelSelect option')) delete opt.dataset.base;
+  applyModelLabels();
+});
 
 // ---------------------------------------------------------------------------
 // Login (the server requires one unless AUTH_ENABLED=false)
@@ -238,6 +264,16 @@ function optionsLabel(kind, o) {
     if (Number(o.maxDim)) parts.push(`≤${o.maxDim}px`);
     return parts.join(' · ');
   }
+  if (kind === 'subtitles') {
+    const parts = [o.embed === 'track' ? t('subTrack') : o.embed === 'burn' ? t('subBurn') : (o.format || 'srt').toUpperCase()];
+    if (o.translate) parts.push('→ English');
+    return parts.join(' · ');
+  }
+  if (kind === 'animation') {
+    const parts = [{ gif: 'GIF', webp: 'WebP', mp4: 'MP4' }[o.format] || 'GIF', `${o.delay ?? 500} ms`];
+    if (Number(o.maxDim)) parts.push(`≤${o.maxDim}px`);
+    return parts.join(' · ');
+  }
   if (kind === 'pdf') return `PDF · ${t({ screen: 'pdfScreen', ebook: 'pdfEbook', printer: 'pdfPrinter', prepress: 'pdfPrepress' }[o.quality] || 'pdfEbook')}${o.grayscale ? ` · ${t('grayscaleShort')}` : ''}`;
   return `${AUDIO_FORMATS[o.format] || o.format} · ${o.bitrate} kbps${o.mono ? ' · mono' : ''}`;
 }
@@ -278,6 +314,8 @@ const MAX_UPLOADS = 3;
 let uploading = 0;
 
 function addFiles(files) {
+  if (settings.general.mode === 'animate') return addFrames(files);
+  if (settings.general.mode === 'subtitles') return addSubtitleJobs(files);
   for (const file of files) {
     const kind = detectKind(file);
     const item = {
@@ -319,7 +357,7 @@ function pumpUploads() {
   while (uploading < MAX_UPLOADS && uploadQueue.length) {
     const item = uploadQueue.shift();
     uploading++;
-    const inBrowser = item.options.general?.where === 'browser' && clientCaps.webcodecs && !item.forceServer;
+    const inBrowser = item.options.general?.where === 'browser' && clientCaps.webcodecs && !item.forceServer && item.kind !== 'subtitles';
     (inBrowser ? compressLocally(item) : upload(item)).finally(() => {
       uploading--;
       pumpUploads();
@@ -459,6 +497,56 @@ async function startOrResumeUpload(file) {
   return upload;
 }
 
+/**
+ * Sends every part of `file` (resuming from parts already stored) without completing the upload.
+ * `item` provides the abort state (`status === 'removed'`) and the XHR set; `onBytes(n)` reports
+ * how many bytes of this file are stored so far.
+ * @returns {Promise<{ uploadId: string }>}
+ */
+async function transferFile(file, item, onBytes) {
+  const up = await startOrResumeUpload(file);
+  // Known right away, so removing the row mid-upload can abort it on the server.
+  (item.uploadIds ??= new Set()).add(up.uploadId);
+  if (up.concurrency) partSlots = up.concurrency;
+  const received = new Set(up.received);
+  const sizeOf = (n) => (n < up.partCount ? up.partSize : file.size - (up.partCount - 1) * up.partSize);
+  let doneBytes = [...received].reduce((sum, n) => sum + sizeOf(n), 0);
+  const inflight = new Map();
+  const showProgress = () => {
+    let bytes = doneBytes;
+    for (const b of inflight.values()) bytes += b;
+    onBytes(bytes);
+  };
+  showProgress();
+
+  const pending = [];
+  for (let n = 1; n <= up.partCount; n++) if (!received.has(n)) pending.push(n);
+  await Promise.all(pending.map((n) => withSlot(async () => {
+    const blob = file.slice((n - 1) * up.partSize, (n - 1) * up.partSize + sizeOf(n));
+    for (let attempt = 0; ; attempt++) {
+      if (item.status === 'removed') throw new HttpError(0, 'removed');
+      try {
+        // Presigned URLs are fetched per attempt, so a retry never uses an expired one.
+        const url = up.direct
+          ? (await api('POST', `/api/uploads/${up.uploadId}/parts/${n}/url`)).url
+          : `/api/uploads/${up.uploadId}/parts/${n}`;
+        await putPart(item, url, up.direct, blob, (loaded) => { inflight.set(n, loaded); showProgress(); });
+        inflight.delete(n);
+        doneBytes += blob.size;
+        showProgress();
+        return;
+      } catch (err) {
+        inflight.delete(n);
+        // Retry network failures and server hiccups with backoff; client errors are final.
+        const retryable = err.status === 0 || err.status >= 500 || err.status === 408 || err.status === 429;
+        if (!retryable || attempt + 1 >= PART_RETRIES || item.status === 'removed') throw err;
+        await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+      }
+    }
+  })));
+  return up;
+}
+
 async function upload(item) {
   const { file } = item;
   item.status = 'uploading';
@@ -466,48 +554,15 @@ async function upload(item) {
   item.xhrs = new Set();
   render(item);
   try {
-    const up = await startOrResumeUpload(file);
-    item.uploadId = up.uploadId;
-    if (up.concurrency) partSlots = up.concurrency;
-    const received = new Set(up.received);
-    const sizeOf = (n) => (n < up.partCount ? up.partSize : file.size - (up.partCount - 1) * up.partSize);
-    let doneBytes = [...received].reduce((sum, n) => sum + sizeOf(n), 0);
-    const inflight = new Map();
-    const showProgress = () => {
-      let bytes = doneBytes;
-      for (const b of inflight.values()) bytes += b;
+    const up = await transferFile(file, item, (bytes) => {
       item.progress = bytes / file.size;
       render(item);
-    };
-    showProgress();
+    });
+    item.uploadId = up.uploadId;
 
-    const pending = [];
-    for (let n = 1; n <= up.partCount; n++) if (!received.has(n)) pending.push(n);
-    await Promise.all(pending.map((n) => withSlot(async () => {
-      const blob = file.slice((n - 1) * up.partSize, (n - 1) * up.partSize + sizeOf(n));
-      for (let attempt = 0; ; attempt++) {
-        if (item.status === 'removed') throw new HttpError(0, 'removed');
-        try {
-          // Presigned URLs are fetched per attempt, so a retry never uses an expired one.
-          const url = up.direct
-            ? (await api('POST', `/api/uploads/${up.uploadId}/parts/${n}/url`)).url
-            : `/api/uploads/${up.uploadId}/parts/${n}`;
-          await putPart(item, url, up.direct, blob, (loaded) => { inflight.set(n, loaded); showProgress(); });
-          inflight.delete(n);
-          doneBytes += blob.size;
-          showProgress();
-          return;
-        } catch (err) {
-          inflight.delete(n);
-          // Retry network failures and server hiccups with backoff; client errors are final.
-          const retryable = err.status === 0 || err.status >= 500 || err.status === 408 || err.status === 429;
-          if (!retryable || attempt + 1 >= PART_RETRIES || item.status === 'removed') throw err;
-          await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
-        }
-      }
-    })));
-
-    const job = await api('POST', `/api/uploads/${up.uploadId}/complete`, { options: item.options });
+    const job = item.kind === 'subtitles'
+      ? await api('POST', '/api/subtitles', { upload: up.uploadId, options: { subtitles: { ...item.options.subtitles, ...(item.subText ? { text: item.subText } : {}) } } })
+      : await api('POST', `/api/uploads/${up.uploadId}/complete`, { options: item.options });
     resumeStore((m) => { delete m[fingerprint(file)]; });
     applyJob(item, job);
     item.file = null; // allow GC — the server has it now
@@ -525,6 +580,7 @@ async function upload(item) {
 
 function resumeUpload(item) {
   item.resumable = false;
+  if (item.kind === 'animation') return uploadAnimation(item);
   item.status = 'waiting';
   render(item);
   uploadQueue.push(item);
@@ -593,9 +649,9 @@ async function cancel(item) {
 function remove(item) {
   item.status = 'removed';
   for (const xhr of item.xhrs || []) xhr.abort();
-  if (item.uploadId && !item.job) {
-    api('DELETE', `/api/uploads/${item.uploadId}`).catch(() => {});
-    if (item.file) resumeStore((m) => { delete m[fingerprint(item.file)]; });
+  if (item.uploadIds && !item.job) {
+    for (const id of item.uploadIds) api('DELETE', `/api/uploads/${id}`).catch(() => {});
+    for (const f of item.frames || (item.file ? [item.file] : [])) resumeStore((m) => { delete m[fingerprint(f)]; });
   }
   const qi = uploadQueue.indexOf(item);
   if (qi >= 0) uploadQueue.splice(qi, 1);
@@ -638,7 +694,8 @@ function render(item) {
       meta.append(t('queued', { size }));
       break;
     case 'processing': {
-      const parts = [t(job.local ? 'compressingLocal' : 'compressing', { pct: Math.round((job.progress || 0) * 100) })];
+      const stageKey = { model: 'stageModel', transcribe: 'stageTranscribe', embed: 'stageEmbed' }[job.stage];
+      const parts = [t(stageKey || (job.local ? 'compressingLocal' : 'compressing'), { pct: Math.round((job.progress || 0) * 100) })];
       if (job.speed) parts.push(`${job.speed.toFixed(1)}×`);
       if (job.eta != null && job.progress > 0.02) parts.push(t('remaining', { time: fmtDuration(job.eta) }));
       meta.append(parts.join(' · '));
@@ -646,6 +703,19 @@ function render(item) {
       break;
     }
     case 'done': {
+      if (item.kind === 'subtitles') {
+        const lang = job.info?.language ? languageName(job.info.language) : null;
+        meta.append(...[
+          el('span', { class: 'new' }, t(job.info?.cues === 1 ? 'subtitleCountOne' : 'subtitleCount', { n: job.info?.cues ?? 0 })),
+          lang ? el('span', {}, lang) : null,
+          el('span', {}, optionsLabel(item.kind, job.options)),
+          el('span', {}, fmtBytes(job.outputSize)),
+          item.note ? el('span', { class: 'note' }, item.note) : null,
+          job.info?.cues === 0 ? el('span', { class: 'note' }, t('noSpeech')) : null,
+        ].filter(Boolean));
+        if (job.finishedAt && job.startedAt) meta.append(el('span', {}, t('took', { time: fmtDuration((job.finishedAt - job.startedAt) / 1000) })));
+        break;
+      }
       const ratio = job.outputSize / job.inputSize;
       const pct = Math.round((1 - ratio) * 100);
       meta.append(
@@ -676,7 +746,14 @@ function render(item) {
   if (actions.dataset.key === actionsKey) return;
   actions.dataset.key = actionsKey;
   actions.replaceChildren();
-  if (item.status === 'done') {
+  if (item.status === 'done' && item.kind === 'subtitles') {
+    actions.append(...[
+      el('a', { class: 'btn small', href: `/api/jobs/${job.id}/file`, download: job.outputName }, t('download')),
+      job.info?.embed !== 'none' ? el('a', { class: 'btn ghost small', href: `/api/jobs/${job.id}/subtitles?format=srt&download=1`, download: '' }, 'SRT') : null,
+      el('button', { type: 'button', class: 'btn ghost small', onclick: () => openSubtitleEditor(item) }, t('editSubs')),
+      el('button', { type: 'button', class: 'btn ghost small', title: t('redoTitle'), onclick: () => retry(item) }, t('redo')),
+    ].filter(Boolean));
+  } else if (item.status === 'done') {
     actions.append(
       el('a', { class: 'btn small', href: item.local ? item.local.url : `/api/jobs/${job.id}/file`, download: job.outputName }, t('download')),
       el('button', { type: 'button', class: 'btn ghost small', onclick: () => openPreview(item) }, t('view')),
@@ -686,7 +763,7 @@ function render(item) {
     actions.append(el('button', { type: 'button', class: 'btn ghost small', onclick: () => cancel(item) }, t('cancel')));
   } else if ((item.status === 'error' || item.status === 'cancelled') && item.job) {
     actions.append(el('button', { type: 'button', class: 'btn ghost small', onclick: () => retry(item) }, t('redo')));
-  } else if (item.status === 'error' && item.resumable && item.file) {
+  } else if (item.status === 'error' && item.resumable && (item.file || item.frames)) {
     actions.append(el('button', { type: 'button', class: 'btn ghost small', title: t('resumeTitle'), onclick: () => resumeUpload(item) }, t('resume')));
   }
   actions.append(el('button', { type: 'button', class: 'icon-btn', title: t('remove'), 'aria-label': t('remove'), onclick: () => remove(item) }, '✕'));
@@ -699,12 +776,15 @@ function renderSummary() {
   const active = items.filter((i) => ['waiting', 'uploading', 'queued', 'processing'].includes(i.status)).length;
   const text = summary.querySelector('.summary-text');
   text.replaceChildren();
-  if (done.length) {
-    const before = done.reduce((s, i) => s + i.job.inputSize, 0);
+  // Savings only mean something for compression (not for animations or subtitles).
+  const compressed = done.filter((i) => i.kind !== 'subtitles' && i.kind !== 'animation');
+  if (done.length) text.append(el('b', {}, t('filesDone', { n: done.length })));
+  if (compressed.length) {
+    const before = compressed.reduce((s, i) => s + i.job.inputSize, 0);
     // Where compression made a file bigger, the user keeps the original.
-    const after = done.reduce((s, i) => s + Math.min(i.job.outputSize, i.job.inputSize), 0);
+    const after = compressed.reduce((s, i) => s + Math.min(i.job.outputSize, i.job.inputSize), 0);
     text.append(
-      el('b', {}, t('filesDone', { n: done.length })), ` · ${fmtBytes(before)} → ${fmtBytes(after)} · `,
+      ` · ${fmtBytes(before)} → ${fmtBytes(after)} · `,
       el('span', { class: 'saved' }, t('saved', { size: fmtBytes(before - after), pct: Math.round((1 - after / before) * 100) })),
     );
   }
@@ -730,6 +810,12 @@ function openPreview(item) {
   document.getElementById('previewTitle').textContent = item.name;
   const media = (src) => {
     if (item.kind === 'image') return el('img', { src, alt: '', loading: 'lazy' });
+    if (item.kind === 'animation') {
+      // The "original" is the first frame; an MP4 result is a video.
+      return /\.mp4$/i.test(job.outputName || '') && src.includes('/file')
+        ? el('video', { src, controls: true, autoplay: true, loop: true, muted: true, playsinline: true })
+        : el('img', { src, alt: '', loading: 'lazy' });
+    }
     if (item.kind === 'video') {
       // GIF output from a video is an image.
       return /\.gif$/i.test(job.outputName || '') && src.includes('/file')
@@ -741,9 +827,283 @@ function openPreview(item) {
   };
   const figure = (label, size, src) => el('figure', {}, media(src), el('figcaption', {}, el('span', {}, label), el('b', {}, fmtBytes(size))));
   body.replaceChildren(
-    figure(t('original'), job.inputSize, job.local ? (item.originalUrl ??= URL.createObjectURL(item.file)) : `/api/jobs/${job.id}/original`),
-    figure(t('compressed'), job.outputSize, job.local ? item.local.url : `/api/jobs/${job.id}/file?inline=1&v=${job.finishedAt}`),
+    figure(item.kind === 'animation' ? t('firstFrame') : t('original'), item.kind === 'animation' ? job.frames?.[0]?.size ?? job.inputSize : job.inputSize, job.local ? (item.originalUrl ??= URL.createObjectURL(item.file)) : `/api/jobs/${job.id}/original`),
+    figure(item.kind === 'animation' ? t('animation') : t('compressed'), job.outputSize, job.local ? item.local.url : `/api/jobs/${job.id}/file?inline=1&v=${job.finishedAt}`),
   );
+  dialog.showModal();
+}
+
+// ---------------------------------------------------------------------------
+// Make an animation: frames are collected here, uploaded, then made into one job on the server
+// ---------------------------------------------------------------------------
+
+/** @type {Array<{ file: File, url: string|null }>} */
+const frames = [];
+const framesList = document.getElementById('frames');
+const createButton = document.getElementById('createAnimation');
+
+for (const b of document.querySelectorAll('[data-mode]')) {
+  b.addEventListener('click', () => setSetting('general.mode', b.dataset.mode));
+}
+
+function addFrames(files) {
+  for (const file of files) {
+    if (detectKind(file) !== 'image') continue; // only still images make frames
+    const previewable = !/\.(heic|heif|tiff?)$/i.test(file.name);
+    frames.push({ file, url: previewable ? URL.createObjectURL(file) : null });
+  }
+  renderFrames();
+}
+
+function moveFrame(from, to) {
+  if (to < 0 || to >= frames.length || from === to) return;
+  frames.splice(to, 0, ...frames.splice(from, 1));
+  renderFrames();
+}
+
+function removeFrame(i) {
+  const [f] = frames.splice(i, 1);
+  if (f?.url) URL.revokeObjectURL(f.url);
+  renderFrames();
+}
+
+let dragFrom = -1;
+function renderFrames() {
+  const max = config.animationMaxFrames || 1000;
+  const size = frames.reduce((s, f) => s + f.file.size, 0);
+  document.getElementById('framesInfo').textContent = frames.length
+    ? t('framesCount', { n: frames.length, size: fmtBytes(size) })
+    : t('noFrames');
+  createButton.disabled = frames.length < 2 || frames.length > max;
+  createButton.title = frames.length > max ? t('tooManyFrames', { n: max }) : '';
+  framesList.replaceChildren(...frames.map((f, i) => el('li', {
+    class: 'frame',
+    draggable: 'true',
+    title: f.file.name,
+    ondragstart: (e) => { dragFrom = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); },
+    ondragover: (e) => { if (dragFrom >= 0) { e.preventDefault(); e.stopPropagation(); } },
+    ondrop: (e) => {
+      if (dragFrom < 0) return;
+      e.preventDefault(); // the window's drop handler still runs, finds no files and resets the overlay
+      moveFrame(dragFrom, i);
+      dragFrom = -1;
+    },
+    ondragend: () => { dragFrom = -1; },
+  },
+  el('span', { class: 'frame-no' }, String(i + 1)),
+  f.url ? el('img', { src: f.url, alt: '' }) : el('span', { class: 'frame-ext' }, (f.file.name.split('.').pop() || '?').toUpperCase().slice(0, 4)),
+  el('span', { class: 'frame-actions' },
+    el('button', { type: 'button', class: 'icon-btn', title: t('moveLeft'), 'aria-label': t('moveLeft'), disabled: i === 0, onclick: () => moveFrame(i, i - 1) }, '←'),
+    el('button', { type: 'button', class: 'icon-btn', title: t('moveRight'), 'aria-label': t('moveRight'), disabled: i === frames.length - 1, onclick: () => moveFrame(i, i + 1) }, '→'),
+    el('button', { type: 'button', class: 'icon-btn', title: t('removeFrame'), 'aria-label': t('removeFrame'), onclick: () => removeFrame(i) }, '✕'),
+  ))));
+}
+
+document.getElementById('clearFrames').addEventListener('click', () => {
+  for (const f of frames) if (f.url) URL.revokeObjectURL(f.url);
+  frames.length = 0;
+  renderFrames();
+});
+
+createButton.addEventListener('click', () => {
+  if (frames.length < 2) return;
+  const taken = frames.splice(0);
+  renderFrames();
+  const files = taken.map((f) => f.file);
+  const first = taken[0];
+  const item = {
+    kind: 'animation',
+    frames: files,
+    name: files.length > 1 ? `${files[0].name} +${files.length - 1}` : files[0].name,
+    inputSize: files.reduce((s, f) => s + f.size, 0),
+    status: 'waiting',
+    error: null,
+    progress: 0,
+    job: null,
+    options: snapshotOptions(),
+  };
+  item.el = rowTpl.content.firstElementChild.cloneNode(true);
+  const thumb = item.el.querySelector('.thumb');
+  thumb.dataset.kind = 'image';
+  if (first.url) {
+    item.thumbUrl = first.url; // the first frame's preview becomes the row's thumbnail
+    thumb.append(el('img', { src: item.thumbUrl, alt: '' }));
+  } else {
+    thumb.textContent = 'GIF';
+  }
+  for (const f of taken.slice(1)) if (f.url) URL.revokeObjectURL(f.url);
+  items.unshift(item);
+  list.prepend(item.el);
+  render(item);
+  renderSummary();
+  uploadAnimation(item);
+});
+
+/** Uploads every frame (chunked, resumable), then asks the server to make the animation. */
+async function uploadAnimation(item) {
+  const files = item.frames;
+  item.status = 'uploading';
+  item.error = null;
+  item.xhrs = new Set();
+  render(item);
+  const sent = new Array(files.length).fill(0);
+  const ids = [];
+  try {
+    // One frame at a time keeps the order simple; each frame's parts still go up in parallel.
+    for (let i = 0; i < files.length; i++) {
+      const up = await transferFile(files[i], item, (bytes) => {
+        sent[i] = bytes;
+        item.progress = sent.reduce((a, b) => a + b, 0) / item.inputSize;
+        render(item);
+      });
+      ids.push(up.uploadId);
+    }
+    const job = await api('POST', '/api/animations', { frames: ids, options: { animation: item.options.animation } });
+    for (const f of files) resumeStore((m) => { delete m[fingerprint(f)]; });
+    applyJob(item, job);
+    item.frames = null; // the server has them now
+  } catch (err) {
+    for (const xhr of item.xhrs) xhr.abort();
+    if (item.status === 'removed') return;
+    item.status = 'error';
+    item.error = err.message || t('uploadInterrupted');
+    item.resumable = !(err instanceof HttpError) || err.status === 0 || err.status === 401 || err.status >= 500;
+  }
+  render(item);
+  renderSummary();
+}
+
+renderFrames();
+
+// ---------------------------------------------------------------------------
+// Subtitles: each video (or audio) is one job; a .srt/.vtt with the same name is used instead of
+// speech recognition. Always made on the server.
+// ---------------------------------------------------------------------------
+
+const isSubtitleFile = (f) => /\.(srt|vtt)$/i.test(f.name);
+const stemOf = (name) => name.replace(/\.[^.]+$/, '').toLowerCase();
+
+function languageName(code) {
+  try {
+    return new Intl.DisplayNames([lang], { type: 'language' }).of(code) || code;
+  } catch {
+    return code;
+  }
+}
+
+async function addSubtitleJobs(files) {
+  const subsFiles = files.filter(isSubtitleFile);
+  const media = files.filter((f) => !isSubtitleFile(f));
+  const av = media.filter((f) => ['video', 'audio'].includes(detectKind(f) || ''));
+  // Pair by name ("talk.mov" + "talk.srt" or "talk.vi.srt"); one video + one file pair up regardless.
+  const pairs = new Map();
+  for (const sub of subsFiles) {
+    const stem = stemOf(sub.name);
+    const match = av.find((m) => !pairs.has(m) && (stemOf(m.name) === stem || stem.startsWith(`${stemOf(m.name)}.`)))
+      || (av.length === 1 && subsFiles.length === 1 ? av[0] : null);
+    if (match) pairs.set(match, sub);
+    else addErrorRow(sub, t('noVideoForSubs'));
+  }
+  for (const file of media) {
+    const kind = detectKind(file);
+    if (kind !== 'video' && kind !== 'audio') {
+      addErrorRow(file, t('notVideoOrAudio'));
+      continue;
+    }
+    const sub = pairs.get(file);
+    const item = newItem(file, 'subtitles', kind);
+    if (sub) {
+      item.subText = await sub.text();
+      item.note = t('usingOwnSubs', { name: sub.name });
+    }
+    uploadQueue.push(item);
+  }
+  pumpUploads();
+  renderSummary();
+}
+
+/** A row for a file that can't be used, with the reason. */
+function addErrorRow(file, message) {
+  const item = newItem(file, null, null);
+  item.status = 'error';
+  item.error = message;
+  render(item);
+}
+
+/** Creates, shows and returns a row item for `file`. `mediaKind` picks the thumbnail. */
+function newItem(file, kind, mediaKind) {
+  const item = {
+    file, kind, name: file.name, inputSize: file.size, status: 'waiting', error: null, progress: 0, job: null,
+    options: structuredClone(settings),
+  };
+  item.el = rowTpl.content.firstElementChild.cloneNode(true);
+  const thumb = item.el.querySelector('.thumb');
+  thumb.dataset.kind = mediaKind || '';
+  thumb.textContent = (file.name.split('.').pop() || '?').toUpperCase().slice(0, 4);
+  items.unshift(item);
+  list.prepend(item.el);
+  render(item);
+  return item;
+}
+
+/** srt → WebVTT, for the preview's <track> (browsers only read WebVTT). */
+const srtToVtt = (srt) => `WEBVTT\n\n${srt.replace(/\r/g, '').replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')}`;
+
+/** Preview with the subtitles on the original, and an editor; Save re-makes the result from the edits. */
+async function openSubtitleEditor(item) {
+  const { job } = item;
+  const body = document.getElementById('previewBody');
+  document.getElementById('previewTitle').textContent = item.name;
+  let srt = '';
+  try {
+    const res = await fetch(`/api/jobs/${job.id}/subtitles?format=srt`);
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    srt = await res.text();
+  } catch (err) {
+    item.status = 'error';
+    item.error = err.message;
+    return render(item);
+  }
+  const video = el('video', { src: `/api/jobs/${job.id}/original`, controls: true, preload: 'metadata', playsinline: true });
+  let trackUrl = null;
+  const setTrack = (text) => {
+    for (const tr of video.querySelectorAll('track')) tr.remove();
+    if (trackUrl) URL.revokeObjectURL(trackUrl);
+    trackUrl = URL.createObjectURL(new Blob([srtToVtt(text)], { type: 'text/vtt' }));
+    const track = el('track', { kind: 'subtitles', src: trackUrl, srclang: job.info?.language || 'und', label: t('tabSubtitles'), default: true });
+    video.append(track);
+    track.track.mode = 'showing';
+  };
+  setTrack(srt);
+  const editor = el('textarea', { class: 'subs-editor', spellcheck: 'false', 'aria-label': t('editSubs') });
+  editor.value = srt;
+  const error = el('p', { class: 'err', hidden: true });
+  const save = async () => {
+    error.hidden = true;
+    try {
+      applyJob(item, await api('POST', `/api/jobs/${job.id}/retry`, { options: { subtitles: { ...job.options, text: editor.value } } }));
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+      return;
+    }
+    item.note = t('editedSubs');
+    render(item);
+    renderSummary();
+    dialog.close();
+  };
+  body.replaceChildren(el('div', { class: 'subs-edit' },
+    video,
+    el('div', { class: 'subs-side' },
+      editor,
+      error,
+      el('div', { class: 'summary-actions' },
+        el('button', { type: 'button', class: 'btn ghost small', onclick: () => setTrack(editor.value) }, t('previewEdits')),
+        el('button', { type: 'button', class: 'btn small', onclick: save }, t('saveSubs')),
+      ),
+      el('p', { class: 'hint' }, t('editSubsHint')),
+    )));
+  dialog.addEventListener('close', () => { if (trackUrl) URL.revokeObjectURL(trackUrl); }, { once: true });
   dialog.showModal();
 }
 
@@ -809,6 +1169,7 @@ window.addEventListener('beforeunload', (e) => {
 
 // Re-render dynamic text when the language changes
 document.addEventListener('langchange', () => {
+  renderFrames();
   for (const item of items) render(item);
   renderSummary();
 });

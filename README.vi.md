@@ -7,7 +7,7 @@
 [![Image size](https://img.shields.io/docker/image-size/runsnip/compress-media?sort=semver)](https://hub.docker.com/r/runsnip/compress-media)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Công cụ tự host để nén **video, ảnh, âm thanh và PDF**. Có giao diện web kéo thả, CLI và HTTP API, dùng ffmpeg, sharp và Ghostscript. Còn có thể nén **ngay trên trình duyệt**, file không rời khỏi thiết bị.
+Công cụ tự host để nén **video, ảnh, âm thanh và PDF**, kèm công cụ làm GIF và **tạo phụ đề từ giọng nói**. Có giao diện web kéo thả, CLI và HTTP API, dùng ffmpeg, sharp, Ghostscript và whisper.cpp. Còn có thể nén **ngay trên trình duyệt**, file không rời khỏi thiết bị.
 
 - Ra đời để xử lý các video quay màn hình QuickTime nặng hàng GB: một bản ghi 2880×1800, 60fps thường **nhỏ đi 90–98%**.
 - File được xử lý ngay trên máy hoặc server của bạn.
@@ -17,7 +17,7 @@ Công cụ tự host để nén **video, ảnh, âm thanh và PDF**. Có giao di
 
 ## Mục lục
 
-[Tính năng](#tính-năng) · [Mới trong 2.0](#mới-trong-20) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
+[Tính năng](#tính-năng) · [Mới trong 2.1](#mới-trong-21) · [Dự kiến cho 2.2](#dự-kiến-cho-22) · [Mới trong 2.0](#mới-trong-20) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
 
 ## Tính năng
 
@@ -30,10 +30,12 @@ Công cụ tự host để nén **video, ảnh, âm thanh và PDF**. Có giao di
   - Giữ định dạng cũ, hoặc chuyển sang JPEG, WebP, AVIF, PNG.
   - Chỉnh chất lượng và cạnh dài tối đa.
   - PNG được giảm số màu (giống pngquant).
-  - GIF và WebP động vẫn giữ chuyển động.
+  - GIF và WebP động vẫn giữ chuyển động, kể cả khi định dạng đã chọn không hỗ trợ ảnh động.
   - Mặc định xóa metadata EXIF và vị trí GPS.
 - **Âm thanh** (WAV, M4A, FLAC, AIFF, MP3…) → MP3, M4A hoặc Opus. Chọn được bitrate và mono.
 - **PDF** → PDF nhỏ hơn, với các mức ảnh từ 72 đến 300 dpi, có thể chuyển đen trắng (Ghostscript).
+- **Tạo ảnh động từ ảnh tĩnh** (làm GIF): 2–1000 ảnh chụp màn hình hoặc ảnh thường → một GIF động, WebP động hoặc MP4, chỉnh được thời gian mỗi khung hình, số lần lặp và kích thước tối đa.
+- **Phụ đề**: lời nói trong video hoặc file âm thanh → file SRT hoặc WebVTT gồm mốc thời gian và nội dung (whisper.cpp, tự nhận diện hoặc chọn ngôn ngữ, có thể dịch sang tiếng Anh), hoặc gắn phụ đề vào video dưới dạng track bật/tắt được hay in thẳng lên hình. Dùng được cả file `.srt`/`.vtt` có sẵn của bạn.
 - **Nén trên trình duyệt (beta)**: video, âm thanh và ảnh được nén ngay trên thiết bị người dùng bằng WebCodecs, hoàn toàn không upload. Việc trình duyệt không làm được sẽ tự chuyển sang server.
 - **Upload**
   - File được chia thành các phần 8 MB, gửi song song 4 phần một lúc.
@@ -49,6 +51,32 @@ Công cụ tự host để nén **video, ảnh, âm thanh và PDF**. Có giao di
 - **Tích hợp**: HTTP API có Server-Sent Events, webhook có chữ ký và xem trạng thái nhiều job một lần.
 - **Mở rộng quy mô**: hàng đợi Redis tùy chọn, với các worker chạy riêng.
 - **Giao diện** tiếng Anh và tiếng Việt, có chế độ sáng và tối, dùng được trên điện thoại.
+
+## Mới trong 2.1
+
+- **Tạo ảnh động.** Ghép 2–1000 ảnh tĩnh thành một **GIF** động, **WebP** động hoặc **MP4**.
+  - Giao diện web: chuyển sang **Tạo ảnh động** ở phía trên vùng thả file, thả ảnh vào, rồi sắp xếp thứ tự khung hình bằng cách kéo (hoặc bằng nút ← →).
+  - Cài đặt: thời gian mỗi khung hình, số lần lặp, kích thước tối đa, và ảnh khác tỉ lệ thì thêm viền (vừa khung) hay cắt bớt (lấp đầy).
+  - CLI: `compress-media animate shot-*.png -o demo.gif`. Thư mục được sắp theo tên, số được so theo giá trị (`shot-2` đứng trước `shot-10`).
+  - API: `POST /api/animations`.
+- **Phụ đề.** Lời nói → file phụ đề có mốc thời gian và nội dung, tải thẳng lên YouTube Studio được (Phụ đề → Tải tệp lên → Có thời gian), hoặc gắn phụ đề vào video.
+  - Nhận dạng giọng nói bằng [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Ngôn ngữ được tự nhận diện hoặc do bạn chọn, và có thể dịch phụ đề sang tiếng Anh. Model chỉ tải một lần, ở lần dùng đầu tiên (75 MB – 1,5 GB).
+  - Kết quả: `talk.vi.srt` (hoặc `.vtt`); hoặc `talk-subtitled.<đuôi>` có **track** phụ đề người xem tự bật (không mã hóa lại), hoặc **in lên hình** (MP4, cho TikTok, Reels, Zalo).
+  - Đã có phụ đề? Dùng file `.srt`/`.vtt` của bạn thay cho nhận dạng giọng nói.
+  - Giao diện web: chế độ **Phụ đề**, có **Xem & sửa** để sửa chữ rồi tạo lại kết quả. CLI: `compress-media subtitles talk.mov --lang vi`. API: `POST /api/subtitles`.
+- **Sửa lỗi: ảnh động không còn bị mất chuyển động.** Trước đây GIF hoặc WebP động bị biến thành ảnh tĩnh một khung khi định dạng đã chọn không hỗ trợ ảnh động. Giờ AVIF sẽ thành WebP động, JPEG và PNG thì giữ nguyên GIF, và kết quả có ghi chú rõ điều đó.
+
+## Dự kiến cho 2.2
+
+Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đổi.
+
+- **Âm thanh sạch hơn.** Chuẩn hóa âm lượng theo mức YouTube và TikTok yêu cầu (−14 LUFS), và giảm tiếng ồn nền (quạt, máy lạnh) cho video và âm thanh.
+- **Xoay, lật và đổi tốc độ.** Dựng thẳng video quay ngang, lật gương, hoặc phát nhanh 1.5×, 2×, hay làm timelapse.
+- **Cắt khoảng lặng.** Tự bỏ các quãng ngừng dài trong video nói (jump cut), dùng chung bộ phát hiện giọng nói với tính năng phụ đề.
+- **Chèn watermark.** Đặt logo hoặc chữ lên video và ảnh, chọn được vị trí và độ mờ.
+- **Chương cho YouTube.** Gợi ý mốc chương từ phụ đề, dán thẳng vào phần mô tả video.
+- **Dịch phụ đề** sang các ngôn ngữ khác ngoài tiếng Anh (ví dụ Anh → Việt).
+- **Ghép video.** Nối nhiều đoạn thành một video.
 
 ## Mới trong 2.0
 
@@ -107,7 +135,7 @@ npm start               # http://localhost:4747
 
 Không cần cài ffmpeg, `npm install` tự tải về. Log lúc khởi động in ra thông tin đăng nhập (đặt `AUTH_USERNAME`/`AUTH_PASSWORD` trong `.env`, hoặc `AUTH_ENABLED=false` nếu là máy riêng). Nếu cổng 4747 đã có app khác dùng, server sẽ báo lỗi chứ không chen vào. Khi đó chạy `PORT=4848 npm start`.
 
-Muốn nén PDF khi chạy trực tiếp thì cài Ghostscript (`brew install ghostscript`, `apt install ghostscript`); image Docker đã có sẵn.
+Muốn nén PDF khi chạy trực tiếp thì cài Ghostscript (`brew install ghostscript`, `apt install ghostscript`); muốn tạo phụ đề từ giọng nói thì cài whisper.cpp (`brew install whisper-cpp`). Image Docker đã có sẵn cả hai.
 
 ## Giao diện web
 
@@ -119,6 +147,12 @@ Muốn nén PDF khi chạy trực tiếp thì cài Ghostscript (`brew install gh
    - **Nén lại** để nén bằng cài đặt hiện tại mà không cần upload lại.
 4. Nếu mạng rớt, dòng đó hiện nút **Tải tiếp**, bấm vào chỉ gửi những phần còn thiếu. Tải lại trang rồi thêm lại đúng file đó cũng sẽ tải tiếp.
 5. **Tải tất cả** lưu mọi kết quả. **Xóa danh sách** xóa các dòng đã xong, cùng file của chúng trên server.
+
+Nút chuyển chế độ ở đầu trang chọn việc cần làm: **Nén file**, **Tạo ảnh động** hoặc **Phụ đề**. Phần cài đặt và vùng thả file đổi theo chế độ đó.
+
+Muốn làm GIF từ ảnh chụp màn hình, chuyển sang **Tạo ảnh động**. Ảnh thả vào trở thành các khung hình có đánh số: kéo (hoặc dùng ← →) để đổi thứ tự, bỏ một khung, hoặc **Xóa** hết. Chọn định dạng, thời gian mỗi khung, số lần lặp và kích thước ở tab **Ảnh động**, rồi bấm **Tạo ảnh động**. Kết quả là một dòng, có **Nén lại** và **Xem** như mọi dòng khác. Ảnh động luôn được tạo trên server, kể cả khi chọn **Nén ở: Trình duyệt này**.
+
+Muốn tạo phụ đề, chuyển sang **Phụ đề** rồi thả video (hoặc file âm thanh) vào. Ở tab **Phụ đề**, chọn kết quả (**File phụ đề**, **Video + track** hoặc **In lên hình**), định dạng file (SRT hoặc WebVTT), ngôn ngữ nói trong video, **Dịch sang phụ đề tiếng Anh** và độ chính xác (model giọng nói; lần dùng đầu sẽ tải model về). Muốn dùng phụ đề của bạn, thả file `.srt`/`.vtt` cùng với video, đặt cùng tên (`talk.mov` + `talk.srt`). Mỗi dòng hiện tiến độ theo từng bước: tải model nhận dạng giọng nói, nghe và viết phụ đề, gắn phụ đề vào video. Khi xong, **Tải về** lưu kết quả (và **SRT** lưu file phụ đề, khi kết quả là video). **Xem & sửa** phát video kèm phụ đề bên cạnh ô sửa chữ: **Xem thử** để xem thay đổi, rồi **Lưu** để tạo lại kết quả từ bản của bạn, không cần nhận dạng lại. **Nén lại** dùng lại phụ đề đã nhận dạng, trừ khi bạn đổi ngôn ngữ, bật/tắt dịch hoặc đổi model. Phụ đề luôn được tạo trên server.
 
 Nếu bản nén không nhỏ hơn bản gốc, dòng đó sẽ có cảnh báo, và bạn nên giữ bản gốc. Ngôn ngữ giao diện tự theo trình duyệt, đổi được bằng nút EN/VI ở góc trên.
 
@@ -136,6 +170,9 @@ compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o web
 compress-media memo.m4a --audio-format opus --bitrate 48 --mono
 compress-media demo.mov --start 0:04 --end 0:19 --video-format gif   # GIF để gắn vào issue
 compress-media cv.pdf --pdf-quality ebook                            # CV để gửi email
+compress-media animate shot-*.png --delay 700 --max-dim 1200 -o walkthrough.gif   # ảnh chụp màn hình → GIF
+compress-media subtitles talk.mov --lang vi              # lời nói → talk.vi.srt (ví dụ để đăng YouTube)
+compress-media subtitles talk.mov --srt talk.srt --embed burn --font-size large   # in phụ đề của bạn lên video
 compress-media probe clip.mov                             # xem độ phân giải, fps, thời lượng, codec
 compress-media *.mov --json -q > report.json              # báo cáo JSON cho script
 compress-media serve                                      # mở giao diện web
@@ -157,7 +194,7 @@ Giao diện web chạy trên một API JSON nhỏ, bạn có thể gọi trực 
 4. Theo dõi trạng thái job.
 5. Tải kết quả về.
 
-Ngoài ra còn có tải nhiều kết quả thành một file ZIP, tiến độ theo thời gian thực qua Server-Sent Events, và webhook có chữ ký khi job xong. Có sẵn hai client mẫu, đã xử lý việc thử lại và cả hai chế độ lưu trữ:
+Ảnh động có endpoint riêng, `POST /api/animations`, nhận các khung hình theo thứ tự. Phụ đề cũng vậy: `POST /api/subtitles` nhận một video (và file `.srt`/`.vtt` của bạn nếu có), còn `GET /api/jobs/:id/subtitles` trả nội dung phụ đề dạng SRT hoặc WebVTT. Ngoài ra còn có tải nhiều kết quả thành một file ZIP, tiến độ theo thời gian thực qua Server-Sent Events, và webhook có chữ ký khi job xong. Có sẵn hai client mẫu, đã xử lý việc thử lại và cả hai chế độ lưu trữ:
 
 ```bash
 export COMPRESS_MEDIA_USER=me@example.com COMPRESS_MEDIA_PASSWORD=…
@@ -184,6 +221,8 @@ Mọi thứ cấu hình qua biến môi trường: đặt trực tiếp trên d�
 | `QUEUE` / `REDIS_URL` / `ROLE` | `memory` / — / `all` | Hàng đợi Redis dùng chung, và các process `web` / `worker` để mở rộng quy mô |
 | `HW_ENCODER` | `auto` | `off`, hoặc chỉ định `videotoolbox` / `nvenc` / `qsv` / `vaapi` / `amf` |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | — | Thông tin kho lưu trữ S3 |
+| `WHISPER_MODEL` | `small` | Model giọng nói để tạo phụ đề: `tiny`, `base`, `small`, `medium` hoặc `large-v3-turbo` |
+| `WHISPER_MODELS_DIR` / `WHISPER_DOWNLOAD` | `WORK_DIR/models` / `true` | Thư mục chứa model giọng nói; `false` để không bao giờ tải model (server không có internet) |
 
 Danh sách đầy đủ: **[docs/configuration.md](docs/configuration.md)**. File mẫu có chú thích: [`.env.example`](.env.example).
 
@@ -224,6 +263,7 @@ Trong **[docs/deployment.md](docs/deployment.md)** có:
 | Nén bằng phần cứng | ✅ VideoToolbox | NVENC, VA-API, Quick Sync (tự nhận diện) | NVENC, Quick Sync, AMF (tự nhận diện) |
 | Ảnh HEIC | ✅ có sẵn | cài `libheif-examples` / `libheif-tools` | dùng Docker |
 | PDF | cài Ghostscript | cài `ghostscript` | cài Ghostscript, hoặc dùng Docker |
+| Phụ đề từ giọng nói | `brew install whisper-cpp` | gói `whisper.cpp`, hoặc tự build | bản build sẵn của whisper.cpp (`WHISPER_PATH`), hoặc dùng Docker |
 | Nén trên trình duyệt | Chrome, Edge, Firefox, Safari (qua HTTPS hoặc localhost; codec tùy trình duyệt, phần thiếu do server làm) | | |
 
 Trên Linux ARM (Raspberry Pi, server ARM), nên trỏ `FFMPEG_PATH`/`FFPROBE_PATH` tới ffmpeg của hệ điều hành, vì bản đi kèm qua npm chạy chậm hơn nhiều. Image Docker đã làm sẵn việc này.
@@ -240,6 +280,9 @@ Trên Linux ARM (Raspberry Pi, server ARM), nên trỏ `FFMPEG_PATH`/`FFPROBE_PA
 | Ghi âm giọng nói | Opus · 48 kbps · mono | `--audio-format opus --bitrate 48 --mono` |
 | Đoạn clip cho tài liệu hoặc issue | GIF · cắt đoạn · 480p | `--video-format gif --start 4 --end 19` |
 | PDF CV hoặc portfolio | PDF · Cân bằng | `--pdf-quality ebook` |
+| GIF từ ảnh chụp màn hình | Tạo ảnh động · GIF · 700 ms | `animate shot-*.png --delay 700` |
+| Phụ đề cho YouTube | Phụ đề · File phụ đề · SRT · Cân bằng | `subtitles talk.mov --lang vi` |
+| Phụ đề cho TikTok / Reels | Phụ đề · In lên hình · Lớn | `subtitles clip.mov --embed burn --font-size large` |
 
 ## Dùng với AI agent
 
@@ -277,13 +320,14 @@ trình duyệt ──các phần──▶ server.js (web) ───────�
 trình duyệt ──các phần──▶ bucket S3 ◀── ký URL ── server.js │     (STORAGE=s3)
 trình duyệt ── WebCodecs (public/local.js) ── không upload gì      ("Nén ở: Trình duyệt này")
                      hàng đợi job (bộ nhớ hoặc Redis) ▼
-                 worker ──▶ lib/media.js ──▶ ffmpeg / sharp / Ghostscript
+                 worker ──▶ lib/media.js ──▶ ffmpeg / sharp / Ghostscript / whisper.cpp
 terminal / agent ──▶ bin/cli.js ──▶ lib/media.js
 ```
 
 | Đường dẫn | Là gì |
 |---|---|
 | [`lib/media.js`](lib/media.js) | Bộ xử lý nén: nhận diện loại file, khả năng của máy (VideoToolbox, HEIC), ffprobe, các encoder |
+| [`lib/subtitles.js`](lib/subtitles.js) | Đọc/ghi SRT và WebVTT, chia câu phụ đề dễ đọc, tải model giọng nói |
 | [`lib/storage.js`](lib/storage.js) | Nơi lưu file upload và kết quả (`local` hoặc `s3`) |
 | [`lib/jobs.js`](lib/jobs.js) · [`lib/store.js`](lib/store.js) | Vòng đời job, và nơi lưu job cùng hàng đợi (`memory` hoặc `redis`) |
 | [`lib/auth.js`](lib/auth.js) · [`lib/webhook.js`](lib/webhook.js) | Đăng nhập, và webhook có chữ ký |
@@ -323,6 +367,8 @@ Mã nguồn dùng giấy phép [MIT](LICENSE). Compress Media chạy kèm phần
 | **sharp / libvips** | Apache-2.0 / **LGPL-3.0** | Liên kết động, thay thế được |
 | **libheif** (Docker) | LGPL-3.0 | Chương trình riêng |
 | **Mediabunny** (nén trên trình duyệt) | **MPL-2.0** | Phục vụ nguyên bản, không sửa |
+| **whisper.cpp** (phụ đề) | MIT | Chương trình riêng. Model giọng nói (MIT) được tải ở lần dùng đầu, không đóng gói sẵn. |
+| **Font DejaVu** (Docker) | Bitstream Vera / DejaVu (tự do) | Font để in phụ đề lên hình |
 | AWS SDK, Express, BullMQ, ioredis, yazl… | Apache-2.0 / MIT / ISC / BSD | Thư viện |
 
 Code của bạn dùng Compress Media không bị ảnh hưởng. **Nếu bạn phát hành lại image Docker**, image có chứa binary GPL/AGPL/LGPL và giấy phép của chúng áp dụng cho các binary đó. Xem **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** (tiếng Anh) để biết điều đó nghĩa là gì, lấy mã nguồn ở đâu, và lưu ý về bằng sáng chế H.264/H.265/AAC.

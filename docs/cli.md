@@ -17,6 +17,8 @@ With Docker on Linux, add `--user "$(id -u):$(id -g)"` so the results are owned 
 ```
 compress-media [options] <file|dir>...      compress
 compress-media probe <file>... [--json]     describe files (size, duration, resolution, fps, codecs)
+compress-media animate <image|dir>... [opts] make an animated GIF / WebP / MP4 from still images
+compress-media subtitles <video|dir>... [opts] speech → SRT/VTT subtitles, or subtitles → a video
 compress-media info [--json]                capabilities: hardware encoder, HEIC support, formats
 compress-media serve [--port N] [--host H]  start the web UI (same as npm start; reads the same env vars)
 compress-media worker                       process queued jobs only (QUEUE=redis; see configuration.md)
@@ -81,6 +83,52 @@ Needs Ghostscript (`gs` on `PATH`, or `GS_PATH`). The Docker image includes it.
 | `--pdf-quality <q>` | `screen` `ebook` `printer` `prepress` | `ebook` | Image resolution: 72 / 150 / 300 dpi / print-shop quality. `ebook` suits CVs, reports and portfolios. |
 | `--grayscale` | flag | off | Convert every page to grayscale |
 
+## Animations (`animate`)
+
+`compress-media animate` turns 2 or more still images into one animated GIF, WebP or MP4.
+
+- Frames are used **in the order given**. Folders are sorted by name, with numbers compared as numbers (`shot-2` before `shot-10`). Add `-r` to include sub-folders.
+- Earlier `*-animated.gif`/`.webp` results inside a folder are skipped, so running it twice doesn't add the first result as a frame.
+- The canvas takes the **first frame's shape** (after EXIF rotation), with the long edge capped at `--max-dim`. Other frames are fitted into it or cropped.
+- The result is named `<first frame>-animated.<ext>` next to the first image, unless `-o` says otherwise.
+
+| Flag | Values | Default | Notes |
+|---|---|---|---|
+| `-o, --out-dir <path>` | file or folder | next to the first image | A path with an extension (`demo.gif`) is the output file; otherwise it's a folder. |
+| `--format <f>` | `gif` `webp` `mp4` | `gif` | GIF plays everywhere. WebP is much smaller with full colour. MP4 is smallest; it has no transparency and no loop setting. |
+| `--delay <ms>` | 20–60000 | `500` | How long each frame shows. |
+| `--fps <n>` | up to 60 | — | Frames per second instead of `--delay` (`--fps 2` = 500 ms). Don't combine them. |
+| `--loop <n>` | whole number | `0` | Times to play; `0` = forever. Ignored for MP4. |
+| `--max-dim <n>` | pixels | `800` | Long edge of the output. |
+| `--fit <f>` | `contain` `cover` | `contain` | `contain` adds borders around frames of another shape; `cover` crops them. |
+| `--background <hex>` | `#fff`, `1e1e1e`… | `#ffffff` | Border colour with `contain`, and the colour behind transparent pixels. |
+| `--quality <n>` | 1–100 | `80` | GIF: number of colours. WebP: quality. MP4: maps to CRF. |
+
+`--overwrite`, `--json` and `-q` work as for compression. The JSON report has one result with `kind: "animation"`, `inputs` (the frames in order) and `info: { frames, width, height, durationMs, loop }`.
+
+## Subtitles (`subtitles`)
+
+`compress-media subtitles` listens to the speech in videos (or audio) with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and writes subtitle files with times and text, next to each input: `talk.mov` → `talk.vi.srt` (the language is detected unless you give `--lang`). It can also put subtitles into the video.
+
+- Needs `whisper-cli` for speech recognition: `brew install whisper-cpp`, your distribution's package, or the Docker image. `compress-media info` says whether it was found. Without it, `--srt` still works.
+- The speech model is downloaded once, on first use, into `~/.cache/compress-media/models` (`WHISPER_MODELS_DIR`). With Docker, mount a volume on `/data` to keep it between runs.
+- Folders are searched for video and audio (`-r` for sub-folders); earlier `*-subtitled.*` results are skipped.
+
+| Flag | Values | Default | Notes |
+|---|---|---|---|
+| `-o, --out-dir <dir>` | folder | next to each input | |
+| `--lang <code>` | `auto`, `vi`, `en`, `ja`… | `auto` | The spoken language (ISO 639-1). Giving it avoids a wrong guess on short clips. |
+| `--translate` | flag | off | English subtitles whatever the spoken language. Not with `large-v3-turbo`. |
+| `--model <m>` | `tiny` `base` `small` `medium` `large-v3-turbo` | `small` (`WHISPER_MODEL`) | Download size 75 MB / 142 MB / 466 MB / 1.5 GB / 547 MB. For Vietnamese use `small` or `large-v3-turbo`. |
+| `--format <f>` | `srt` `vtt` | `srt` | Subtitle file format. YouTube, Facebook, Premiere and VLC read both. |
+| `--embed <e>` | `none` `track` `burn` | `none` | `track`: the same video plus a subtitle track viewers can turn on (no re-encode; MP4/MOV/WebM/MKV are kept, others become MKV). `burn`: the text is drawn into the picture (re-encoded MP4), for TikTok, Reels and players without subtitle support. Output: `<name>-subtitled.<ext>`. |
+| `--font-size <s>` | `small` `medium` `large` | `medium` | Text size for `--embed burn`. |
+| `--srt <file>` | `.srt` or `.vtt` | — | Use these subtitles instead of speech recognition (one input at a time). |
+
+`--overwrite`, `--json` and `-q` work as for compression. Each JSON result has `kind: "subtitles"` and `info: { cues, language, spokenLanguage, model, duration, embed, words }`.
+
+Subtitles are split into readable cues of at most two lines of about 42 characters, timed from the speech.
+
 ## Examples
 
 ```bash
@@ -110,6 +158,18 @@ compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o web
 
 # Voice memo
 compress-media memo.m4a --audio-format opus --bitrate 48 --mono
+
+# A walkthrough GIF from numbered screenshots
+compress-media animate shots/ --delay 700 --max-dim 1200 -o walkthrough.gif
+
+# A slideshow video, two photos per second
+compress-media animate trip/*.jpg --format mp4 --fps 2 --fit cover --max-dim 1920
+
+# Subtitles for YouTube from a Vietnamese talk (talk.vi.srt)
+compress-media subtitles talk.mov --lang vi
+
+# Your own subtitles drawn into the video, for Reels or TikTok
+compress-media subtitles talk.mov --srt talk.srt --embed burn --font-size large
 
 # Look first, then decide
 compress-media probe "Screen Recording.mov"

@@ -1,11 +1,11 @@
 ---
 name: compress-media-deploy
-description: Install, configure, deploy, scale, upgrade and troubleshoot a Compress Media server (web UI + HTTP API for compressing video, images, audio and PDF), with Docker, Docker Compose or Node.js, local disk or S3-compatible object storage (AWS S3, Cloudflare R2, GCS, MinIO, B2), login, GPU encoding, a Redis queue with separate workers, behind a reverse proxy. Use when the user wants to host or run Compress Media, expose it to a team, move uploads to a bucket, fix CORS/upload/port/disk problems, or update the running version. To compress files, use the compress-media skill instead.
+description: Install, configure, deploy, scale, upgrade and troubleshoot a Compress Media server (web UI + HTTP API for compressing video, images, audio and PDF, making GIFs and subtitles), with Docker, Docker Compose or Node.js, local disk or S3-compatible object storage (AWS S3, Cloudflare R2, GCS, MinIO, B2), login, GPU encoding, speech-to-subtitles (whisper.cpp models, offline servers), a Redis queue with separate workers, behind a reverse proxy. Use when the user wants to host or run Compress Media, expose it to a team, move uploads to a bucket, fix CORS/upload/port/disk problems, or update the running version. To compress files, use the compress-media skill instead.
 ---
 
 # compress-media-deploy
 
-Compress Media is a Node.js server. It serves a web UI and a JSON API, and compresses with ffmpeg and sharp.
+Compress Media is a Node.js server. It serves a web UI and a JSON API, compresses with ffmpeg and sharp, and makes subtitles from speech with whisper.cpp.
 
 - **Image:** `runsnip/compress-media` on Docker Hub (`linux/amd64`, `linux/arm64`).
 - **Port:** 4747.
@@ -23,6 +23,7 @@ Ask what the user wants if it isn't clear. The choice decides everything else.
 | Shared with a team or the public | Docker + reverse proxy **with auth** + `PUBLIC_URL`, usually `STORAGE=s3` |
 | Many or large uploads, or behind Cloudflare | `STORAGE=s3`: browsers upload straight to the bucket |
 | Heavy video work, many users | `QUEUE=redis` + separate workers (`docker-compose.scale.yml`); `STORAGE=s3` when workers run on other machines |
+| Subtitles on a server without internet access | `WHISPER_DOWNLOAD=false` and copy the models in yourself (see [Subtitles](#subtitles-speech-recognition)) |
 | Organisation forbids AGPL software | Use the `-nopdf` image tags (e.g. `runsnip/compress-media:2.0.0-nopdf`): no Ghostscript, no PDF feature |
 
 ## 2. Run it
@@ -39,6 +40,7 @@ docker run -d --name compress-media --restart unless-stopped \
 
 - Pin a version tag in production; `latest` moves.
 - `/data` is scratch space for uploads and results. It needs room for the largest input plus its output.
+- `/data/models` keeps the speech models for subtitles (`WHISPER_MODELS_DIR` is set in the image). Keep `/data` on a named volume so they're downloaded only once; they're never deleted by the app.
 
 **Compose:** use the repo's `docker-compose.yml` with settings in `.env`, then `docker compose up -d`. Compose publishes the host port from `COMPRESS_MEDIA_PORT`, not `PORT`; `PORT` is the port inside the container. `docker-compose.s3.yml` runs the app with a local S3 server (SeaweedFS) to try object storage.
 
@@ -47,6 +49,7 @@ docker run -d --name compress-media --restart unless-stopped \
 - `HOST=0.0.0.0` makes it reachable from other machines on the network. There is no login, so only do this on a trusted LAN.
 - On Linux, install `libheif-examples` for HEIC.
 - On Linux ARM, set `FFMPEG_PATH=/usr/bin/ffmpeg FFPROBE_PATH=/usr/bin/ffprobe`.
+- For subtitles from speech, install whisper.cpp: `brew install whisper-cpp` (macOS), the distro's `whisper.cpp` package (e.g. Alpine community) or a source build (Linux), a release build on Windows, or set `WHISPER_PATH`. Without it, users can still add their own `.srt`/`.vtt` files to videos.
 
 ## 3. Login (on by default)
 
@@ -86,8 +89,22 @@ docker run -d --name compress-media --restart unless-stopped \
 | `ROLE` | `all` | `web`, `worker` (needs `QUEUE=redis`) |
 | `HW_ENCODER` / `VAAPI_DEVICE` | `auto` / `/dev/dri/renderD128` | Hardware encoder |
 | `WEBHOOK_SECRET` / `WEBHOOK_ALLOW_PRIVATE` | — / `false` | Webhook signing; allow webhooks to private addresses |
+| `WHISPER_PATH` | `whisper-cli` (or `whisper-cpp`) on `PATH` | whisper.cpp command for subtitles |
+| `WHISPER_MODEL` | `small` | Default speech model: `tiny` (75 MB), `base` (142 MB), `small` (466 MB), `medium` (1.5 GB), `large-v3-turbo` (547 MB, most accurate, can't translate). Non-English: `small` or better. |
+| `WHISPER_MODELS_DIR` | `WORK_DIR/models`; `/data/models` in Docker | Where models are kept |
+| `WHISPER_DOWNLOAD` | `true` | `false`: never download (offline servers) |
+| `WHISPER_MODEL_URL` | Hugging Face `ggerganov/whisper.cpp` | Download mirror |
+| `WHISPER_THREADS` | CPU cores, up to 8 | Threads per transcription |
 
 Keep secrets out of files that get committed: use `.env` (git-ignored) or the platform's secret store.
+
+### Subtitles (speech recognition)
+
+- **Docker:** the image includes Alpine's `whisper.cpp` and DejaVu fonts (for burned-in Vietnamese and other accented text), both the default and `-nopdf` tags. Subtitles add about 106 MB (uncompressed) to the image. `docker build --build-arg WHISPER=false` leaves whisper.cpp out; the fonts stay, and own subtitle files still work. Chinese/Japanese/Korean burn-in needs a CJK font (e.g. `font-noto-cjk`) added to the image.
+- **Models are not bundled.** Each is downloaded once, on first use, from Hugging Face (`ggerganov/whisper.cpp`), plus the < 1 MB Silero VAD model `ggml-silero-v5.1.2.bin` (`ggml-org/whisper-vad`) that skips silence and music. The first subtitle job waits for it (row shows "Downloading the speech model"). To avoid that, run one short job after deploying.
+- **Offline servers:** set `WHISPER_DOWNLOAD=false` and copy the files into `WHISPER_MODELS_DIR` (`/data/models` in Docker): `ggml-small.bin` (or `ggml-tiny.bin`, `ggml-base.bin`, `ggml-medium.bin`, `ggml-large-v3-turbo-q5_0.bin`) from `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/`, and `ggml-silero-v5.1.2.bin` from `https://huggingface.co/ggml-org/whisper-vad/resolve/main/`. Without the VAD file, transcription still runs. Or point `WHISPER_MODEL_URL` at an internal mirror.
+- **Workers** run whisper.cpp and download and read the models. A `ROLE=web` server accepts subtitle jobs without whisper.cpp of its own (the web UI's speech-recognition hint and model list reflect the web server's machine, so installing it there too keeps them accurate). With `docker-compose.scale.yml` every container uses the same image and shares `/data`, so a model is downloaded once.
+- **Check:** `/api/config` → `whisper` (command or `null`), `burnSubtitles`, `subtitleModels[].installed`. Natively, `compress-media info` prints `Subtitles:` and `Speech models:`.
 
 ## 5. Object storage (`STORAGE=s3`)
 
@@ -210,12 +227,17 @@ With Compose, set `COMPRESS_MEDIA_IMAGE=runsnip/compress-media:<version>` in `.e
 | `ROLE=web needs a shared queue` | Set `QUEUE=redis` and `REDIS_URL`. |
 | Jobs stay "queued" with `ROLE=web` | No worker is running, or workers point at a different `REDIS_URL`/`REDIS_PREFIX`. |
 | No PDF tab | Ghostscript is missing (native: install it; Docker: the image was built with `GHOSTSCRIPT=false`). |
+| Subtitles: "Speech recognition (whisper.cpp) isn't installed on this server" | whisper.cpp isn't on `PATH`. Install it natively, set `WHISPER_PATH`, or use the image (not built with `WHISPER=false`). |
+| Subtitles: `The speech model "…" isn't installed` | `WHISPER_DOWNLOAD=false` and the `ggml-*.bin` file is missing from `WHISPER_MODELS_DIR`. Copy it in, or allow downloads. |
+| Subtitles: `Could not download ggml-….bin (HTTP …)` or `(ENOTFOUND). Check the internet connection…` | No route to huggingface.co (or a proxy blocks it). Open egress, set `WHISPER_MODEL_URL` to a mirror, or copy the models in. |
+| Subtitles: no "Burned in" option / `needs libass` | The ffmpeg in use lacks libass. The bundled one and the image's have it. |
+| Burned-in text shows boxes | No font for that script. DejaVu covers Latin (incl. Vietnamese), Greek, Cyrillic; add e.g. `font-noto-cjk` for CJK. |
 | "Compress on: This browser" missing | The page isn't on HTTPS or localhost, or the browser lacks WebCodecs. |
 
 ## Rules
 
 - Don't turn login off on a reachable server. Don't change a shared bucket's CORS or lifecycle rules without telling the user.
-- Mention licensing when the user redistributes the image (ships it to customers, or pushes it to a public registry). The image contains GPL (FFmpeg), AGPL (Ghostscript) and LGPL (libvips, libheif) binaries; see `THIRD_PARTY_NOTICES.md`.
+- Mention licensing when the user redistributes the image (ships it to customers, or pushes it to a public registry). The image contains GPL (FFmpeg), AGPL (Ghostscript) and LGPL (libvips, libheif) binaries, plus MIT whisper.cpp and DejaVu fonts; speech models are downloaded at runtime, not shipped. See `THIRD_PARTY_NOTICES.md`.
 - Never delete Docker volumes, buckets or objects outside `S3_PREFIX` unless the user explicitly asks.
 - Put credentials in `.env` or a secret store, never in committed files or command lines that get logged.
 - After any change, run the checks in section 8 and report what you verified.

@@ -139,6 +139,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # A spoken test video (e2e/global-setup.js), so the image's whisper.cpp is exercised for real.
+      - run: sudo apt-get install -y --no-install-recommends espeak-ng
       - name: E2E against the container
         run: |
           docker run -d --name app -p 4790:4747 -e MEDIA_CONCURRENCY=3 \

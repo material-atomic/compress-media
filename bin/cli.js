@@ -11,12 +11,15 @@ const os = require('node:os');
 const { parseArgs } = require('node:util');
 const pkg = require('../package.json');
 const media = require('../lib/media');
+const subs = require('../lib/subtitles');
 
-const HELP = `compress-media ${pkg.version} — compress video, images and audio
+const HELP = `compress-media ${pkg.version} — compress video, images, audio and PDF
 
 Usage:
   compress-media [options] <file|dir>...   compress files (results are written next to each input)
   compress-media probe <file>... [--json]  show size, duration, resolution, fps and codecs (decide settings first)
+  compress-media animate <image|dir>... [options]   make an animated GIF / WebP / MP4 from still images
+  compress-media subtitles <video|audio|dir>... [options]   speech → SRT/VTT subtitles, or subtitles → video
   compress-media info [--json]             show detected capabilities (hardware encoder, HEIC support)
   compress-media serve [--port N] [--host H]   start the web UI (default http://127.0.0.1:4747)
   compress-media worker                    run a queue worker only (needs QUEUE=redis and REDIS_URL)
@@ -61,6 +64,27 @@ PDF (needs Ghostscript; included in the Docker image):
   -h, --help                 show this help
   -v, --version              show the version
 
+Animate (still images → one animation; frames in the order given, folders sorted by name):
+  -o, --out-dir <path>       output file (e.g. demo.gif) or folder (default: next to the first image)
+      --format <f>           gif | webp | mp4                          (default: gif)
+      --delay <ms>           how long each frame shows                 (default: 500)
+      --fps <n>              frames per second instead of --delay, e.g. 2
+      --loop <n>             times to play; 0 = forever                (default: 0; not for mp4)
+      --max-dim <n>          long edge of the output in pixels         (default: 800)
+      --fit <f>              contain (letterbox) | cover (crop)        (default: contain)
+      --background <hex>     colour behind letterboxed frames          (default: #ffffff)
+      --quality <n>          1–100: GIF colours, WebP quality, MP4 CRF (default: 80)
+
+Subtitles (speech recognition with whisper.cpp; the model is downloaded on first use):
+  -o, --out-dir <dir>        write results into <dir>                  (default: next to each input)
+      --lang <code>          spoken language: auto | vi | en | ja …     (default: auto)
+      --translate            English subtitles, whatever the spoken language
+      --model <m>            tiny | base | small | medium | large-v3-turbo   (default: small)
+      --format <f>           srt | vtt                                 (default: srt)
+      --embed <e>            none (a subtitle file) | track (selectable) | burn (drawn into the picture)
+      --font-size <s>        small | medium | large, with --embed burn (default: medium)
+      --srt <file>           use this .srt/.vtt instead of transcribing (one input only)
+
 Exit codes: 0 = every file succeeded (or was skipped), 1 = at least one file failed, 2 = bad usage.
 
 Examples:
@@ -70,6 +94,9 @@ Examples:
   compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o ~/Desktop/web
   compress-media voice.wav --audio-format opus --bitrate 48 --mono
   compress-media cv.pdf --pdf-quality ebook
+  compress-media animate shot-*.png --delay 700 --max-dim 1200 -o walkthrough.gif
+  compress-media subtitles talk.mov --lang vi                 # talk.vi.srt, ready for YouTube
+  compress-media subtitles talk.mov --srt talk.srt --embed burn   # your subtitles, drawn into the video
   compress-media *.mov --json > report.json
 `;
 
@@ -103,7 +130,18 @@ const OPTIONS = {
   'pdf-quality': { type: 'string' },
   grayscale: { type: 'boolean' },
   port: { type: 'string' },
+  format: { type: 'string' },
+  delay: { type: 'string' },
+  loop: { type: 'string' },
+  fit: { type: 'string' },
+  background: { type: 'string' },
   host: { type: 'string' },
+  lang: { type: 'string' },
+  translate: { type: 'boolean' },
+  model: { type: 'string' },
+  embed: { type: 'string' },
+  'font-size': { type: 'string' },
+  srt: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 };
@@ -248,7 +286,8 @@ function createReporter({ quiet, total }) {
   const draw = () => {
     if (!tty || !active.size) return;
     const [name, p] = [...active.entries()].at(-1);
-    const parts = [`${Math.round(p.progress * 100)}%`];
+    const stage = { model: 'downloading the speech model', transcribe: 'transcribing', embed: 'adding subtitles' }[p.stage];
+    const parts = [`${stage ? `${stage} ` : ''}${Math.round(p.progress * 100)}%`];
     if (p.speed) parts.push(`${p.speed.toFixed(1)}×`);
     if (p.eta != null && p.progress > 0.02) parts.push(`~${p.eta}s left`);
     clear();
@@ -267,6 +306,10 @@ function createReporter({ quiet, total }) {
       let line;
       if (r.status === 'error') line = `✗ ${label}: ${r.error}`;
       else if (r.status === 'skipped') line = `– ${label}: ${r.reason}`;
+      else if (r.kind === 'subtitles') {
+        const lang = r.info.language ? ` · ${r.info.language}` : '';
+        line = `✓ ${label} → ${path.relative(process.cwd(), r.output) || r.output}  ${r.info.cues} subtitle${r.info.cues === 1 ? '' : 's'}${lang}`;
+      }
       else {
         const pct = Math.round((1 - r.outputSize / r.inputSize) * 100);
         line = `✓ ${label}  ${fmtBytes(r.inputSize)} → ${fmtBytes(r.outputSize)}  (${pct >= 0 ? '−' : '+'}${Math.abs(pct)}%)  ${path.relative(process.cwd(), r.output) || r.output}`;
@@ -415,6 +458,206 @@ async function probeFile(file) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// animate: still images → one animated GIF / WebP / MP4
+// ---------------------------------------------------------------------------
+
+/** Frames in the order given; folders contribute their images sorted by name (frame2 before frame10). */
+async function collectFrames(args, recursive) {
+  const frames = [];
+  const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  const visit = async (p, fromDir) => {
+    let stat;
+    try {
+      stat = await fsp.stat(p);
+    } catch {
+      if (fromDir) return;
+      throw new UsageError(`No such file or directory: ${p}`);
+    }
+    if (stat.isDirectory()) {
+      if (fromDir && !recursive) return;
+      for (const name of (await fsp.readdir(p)).sort(byName)) if (!name.startsWith('.')) await visit(path.join(p, name), true);
+      return;
+    }
+    if (media.detectKind(p) !== 'image') {
+      if (fromDir) return;
+      throw new UsageError(`Not an image: ${p}`);
+    }
+    // A folder's earlier results (written next to its frames by default) are not frames.
+    if (fromDir && /-animated(\.partial)?\.(gif|webp)$/i.test(p)) return;
+    frames.push(path.resolve(p));
+  };
+  for (const a of args) await visit(a, false);
+  return frames;
+}
+
+async function cmdAnimate(args, v) {
+  const frames = await collectFrames(args, !!v.recursive);
+  if (frames.length < 2) throw new UsageError('animate needs at least 2 images');
+  const format = oneOf('format', v.format, ['gif', 'webp', 'mp4']) || 'gif';
+  if (v.delay !== undefined && v.fps !== undefined) throw new UsageError('use either --delay or --fps');
+  const fps = positiveNumber('fps', v.fps, { max: 60 });
+  /** @type {import('../lib/types').AnimationOptions} */
+  const options = {
+    format: /** @type {'gif'|'webp'|'mp4'} */ (format),
+    delay: fps ? 1000 / fps : positiveNumber('delay', v.delay, { max: 60_000 }) || 500,
+    loop: v.loop === undefined ? 0 : Number(v.loop),
+    maxDim: v['max-dim'] === undefined ? 800 : positiveNumber('max-dim', v['max-dim']),
+    fit: /** @type {'contain'|'cover'} */ (oneOf('fit', v.fit, ['contain', 'cover']) || 'contain'),
+    background: v.background,
+    quality: positiveNumber('quality', v.quality, { max: 100 }) || 80,
+  };
+  if (!Number.isInteger(options.loop) || Number(options.loop) < 0) throw new UsageError('--loop must be 0 (forever) or a positive whole number');
+  if (v.background !== undefined && !/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v.background)) throw new UsageError('--background must be a hex colour like #fff or 1e1e1e');
+
+  // Output: -o file, -o folder, or next to the first frame.
+  const defaultName = `${path.parse(frames[0]).name}-animated.${format}`;
+  let output = path.join(path.dirname(frames[0]), defaultName);
+  if (v['out-dir']) {
+    const target = path.resolve(v['out-dir']);
+    const isDir = /[\\/]$/.test(v['out-dir']) || (await fsp.stat(target).then((st) => st.isDirectory()).catch(() => false)) || !path.extname(target);
+    output = isDir ? path.join(target, defaultName) : target;
+  }
+  if (fs.existsSync(output) && !v.overwrite) throw new UsageError(`${output} already exists (use --overwrite)`);
+  await fsp.mkdir(path.dirname(output), { recursive: true });
+
+  await media.detectCapabilities();
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  const reporter = createReporter({ quiet: !!v.quiet, total: 1 });
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'compress-media-'));
+  const started = Date.now();
+  const inputSize = frames.reduce((sum, f) => sum + fs.statSync(f).size, 0);
+  const partial = output.replace(/\.([^.]+)$/, '.partial.$1');
+  partials.add(partial);
+  let result;
+  try {
+    const out = await media.compress({
+      kind: 'animation',
+      input: frames[0],
+      inputs: frames,
+      options,
+      outputPath: () => partial,
+      tempPath: (suffix) => path.join(tmpDir, suffix),
+      onSpawn: (proc) => { running.add(proc); proc.on('close', () => running.delete(proc)); },
+      onProgress: (p) => reporter.progress(path.basename(output), p),
+    });
+    await fsp.rename(partial, output);
+    const outputSize = fs.statSync(output).size;
+    result = { input: frames[0], inputs: frames, kind: 'animation', status: 'done', output, inputSize, outputSize, durationMs: Date.now() - started, options, info: out.info };
+  } catch (err) {
+    await fsp.rm(partial, { force: true }).catch(() => {});
+    result = { input: frames[0], inputs: frames, kind: 'animation', status: 'error', inputSize, error: err.message || String(err), durationMs: Date.now() - started };
+  } finally {
+    partials.delete(partial);
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+  if (v.json) {
+    const done = result.status === 'done';
+    process.stdout.write(`${JSON.stringify({ ok: done, totals: { files: 1, done: done ? 1 : 0, skipped: 0, failed: done ? 0 : 1, inputSize, outputSize: result.outputSize || 0 }, results: [result] }, null, 2)}\n`);
+  } else if (!v.quiet) {
+    process.stderr.write(result.status === 'done'
+      ? `✓ ${frames.length} images → ${path.relative(process.cwd(), output) || output}  ${fmtBytes(result.outputSize)} · ${result.info.width}×${result.info.height} · ${(result.info.durationMs / 1000).toFixed(1)} s\n`
+      : `✗ animate: ${result.error}\n`);
+  }
+  return result.status === 'done' ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
+// subtitles: speech → SRT/VTT (whisper.cpp), or subtitles → video
+// ---------------------------------------------------------------------------
+
+async function cmdSubtitles(args, v) {
+  if (!args.length) throw new UsageError('subtitles needs a video or audio file');
+  const embed = oneOf('embed', v.embed, ['none', 'track', 'burn']) || 'none';
+  /** @type {import('../lib/types').SubtitleOptions} */
+  const options = {
+    language: (v.lang || 'auto').toLowerCase(),
+    translate: !!v.translate,
+    model: /** @type {any} */ (oneOf('model', v.model, Object.keys(subs.MODELS))),
+    format: /** @type {'srt'|'vtt'} */ (oneOf('format', v.format, ['srt', 'vtt']) || 'srt'),
+    embed,
+    fontSize: /** @type {any} */ (oneOf('font-size', v['font-size'], ['small', 'medium', 'large']) || 'medium'),
+  };
+  if (options.language !== 'auto' && !/^[a-z]{2,3}$/.test(options.language)) throw new UsageError(`--lang must be auto or a language code like vi or en (got "${v.lang}")`);
+  const av = (file) => ['video', 'audio'].includes(media.detectKind(file) || '');
+  // Files named on the command line must be video or audio; inside folders, other files are skipped.
+  const named = args.find((a) => fs.existsSync(a) && fs.statSync(a).isFile() && !av(a));
+  if (named) throw new UsageError(`Not a video or audio file: ${named}`);
+  const inputs = (await collectInputs(args, !!v.recursive, '-subtitled')).filter(({ file }) => av(file));
+  if (!inputs.length) throw new UsageError('No video or audio files found.');
+  if (v.srt !== undefined) {
+    if (inputs.length !== 1) throw new UsageError('--srt works with one input at a time');
+    if (!/\.(srt|vtt)$/i.test(v.srt) || !fs.existsSync(v.srt)) throw new UsageError(`--srt needs an existing .srt or .vtt file (got "${v.srt}")`);
+    options.text = await fsp.readFile(v.srt, 'utf8');
+  }
+  await media.detectCapabilities();
+  if (!options.text && !media.caps.whisper) throw new Error('Speech recognition needs whisper.cpp (whisper-cli): brew install whisper-cpp, the Docker image, or WHISPER_PATH. Or pass your own --srt.');
+  if (embed === 'burn' && !media.caps.burnSubtitles) throw new Error('This ffmpeg can\'t burn in subtitles (no libass); use --embed track');
+
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+  const reporter = createReporter({ quiet: !!v.quiet, total: inputs.length });
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'compress-media-'));
+  const outDir = v['out-dir'] && path.resolve(v['out-dir']);
+  const results = [];
+  try {
+    for (const { file, rel } of inputs) {
+      const started = Date.now();
+      const inputSize = fs.statSync(file).size;
+      const base = { input: file, kind: 'subtitles', inputSize };
+      const dir = outDir ? path.join(outDir, rel) : path.dirname(file);
+      const stem = path.parse(file).name;
+      let partial;
+      /** @type {any} */
+      let r;
+      try {
+        await fsp.mkdir(dir, { recursive: true });
+        const out = await media.compress({
+          kind: 'subtitles',
+          input: file,
+          options,
+          outputPath: (ext) => {
+            partial = path.join(dir, `${stem}.partial.${ext}`);
+            partials.add(partial);
+            return partial;
+          },
+          tempPath: (suffix) => path.join(tmpDir, `${Math.random().toString(36).slice(2)}-${suffix}`),
+          onSpawn: (proc) => { running.add(proc); proc.on('close', () => running.delete(proc)); },
+          onProgress: (p) => reporter.progress(path.basename(file), p),
+        });
+        const output = path.join(dir, `${stem}${out.suffix}`);
+        // Never write over an input: the video, or the subtitle file given with --srt (talk.srt → talk.srt).
+        if (path.resolve(output) === path.resolve(file)) throw new Error('Output would overwrite the input');
+        if (v.srt !== undefined && path.resolve(output) === path.resolve(v.srt)) {
+          throw new Error(`The result would replace ${v.srt}; add --lang, choose another --format, or use --out-dir`);
+        }
+        if (fs.existsSync(output) && !v.overwrite) throw new Error(`${output} already exists (use --overwrite)`);
+        await fsp.rename(out.file, output);
+        partials.delete(partial);
+        r = { ...base, status: 'done', output, outputSize: fs.statSync(output).size, durationMs: Date.now() - started, options: { ...options, text: undefined }, info: out.info };
+      } catch (err) {
+        if (partial) {
+          await fsp.rm(partial, { force: true }).catch(() => {});
+          partials.delete(partial);
+        }
+        r = { ...base, status: 'error', error: err.message || String(err), durationMs: Date.now() - started };
+      }
+      results.push(r);
+      reporter.done(results.length, r);
+    }
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+  const done = results.filter((r) => r.status === 'done');
+  const failed = results.length - done.length;
+  if (v.json) {
+    const totals = { files: results.length, done: done.length, skipped: 0, failed, inputSize: done.reduce((n, r) => n + r.inputSize, 0), outputSize: done.reduce((n, r) => n + r.outputSize, 0) };
+    process.stdout.write(`${JSON.stringify({ ok: failed === 0, totals, results }, null, 2)}\n`);
+  }
+  return failed ? 1 : 0;
+}
+
 async function cmdProbe(files, json) {
   if (!files.length) throw new UsageError('probe needs at least one file');
   const missing = files.find((f) => !fs.existsSync(f));
@@ -456,6 +699,12 @@ async function cmdInfo(json) {
     webm: caps.webm,
     pdf: caps.pdf,
     heicDecoder: caps.heicDecoder,
+    whisper: caps.whisper,
+    burnSubtitles: caps.burnSubtitles,
+    // Same names as the server's /api/config.
+    subtitleModels: subs.listModels(),
+    subtitleModel: subs.defaultModel(),
+    subtitleModelsDir: subs.getModelsDir(),
     formats: media.EXT,
   };
   if (json) process.stdout.write(`${JSON.stringify(info, null, 2)}\n`);
@@ -466,6 +715,9 @@ async function cmdInfo(json) {
     console.log(`AV1 / WebM / GIF:  ${info.av1 ? 'yes' : 'no'} / ${info.webm ? 'yes' : 'no'} / yes`);
     console.log(`PDF compression:   ${info.pdf ? 'yes (Ghostscript)' : 'no — install Ghostscript or use Docker'}`);
     console.log(`HEIC photos:       ${info.heicDecoder ? `yes (${info.heicDecoder})` : 'no — install libheif or use Docker'}`);
+    console.log(`Subtitles:         ${info.whisper ? `yes (${info.whisper})` : 'own SRT/VTT only (whisper.cpp not found; install it to transcribe)'}${info.burnSubtitles ? ', burn-in' : ''}`);
+    const installed = info.subtitleModels.filter((m) => m.installed).map((m) => m.name);
+    console.log(`Speech models:     ${installed.length ? installed.join(', ') : 'none yet'} in ${info.subtitleModelsDir} (default ${info.subtitleModel}, downloaded on first use)`);
     for (const [kind, exts] of Object.entries(info.formats)) console.log(`${`${kind}:`.padEnd(19)}${exts.join(' ')}`);
   }
 }
@@ -484,6 +736,8 @@ async function main(argv) {
   const [command, ...rest] = positionals;
   if (command === 'info' && !rest.length) return cmdInfo(v.json);
   if (command === 'probe') return cmdProbe(rest, v.json);
+  if (command === 'animate') return cmdAnimate(rest, v);
+  if (command === 'subtitles') return cmdSubtitles(rest, v);
   if (command === 'serve' && !rest.length) {
     const server = require('../server');
     await server.start({

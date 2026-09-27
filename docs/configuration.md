@@ -46,6 +46,23 @@ After 10 wrong passwords from one address within 15 minutes, login is blocked fo
 | `HW_ENCODER` | `auto` | Hardware video encoder: `auto` detects one, `off` disables it, or name one of `videotoolbox`, `nvenc`, `qsv`, `vaapi`, `amf`. Candidates are verified with a test encode at startup. |
 | `VAAPI_DEVICE` | `/dev/dri/renderD128` | Render node for VA-API (Intel/AMD on Linux). |
 
+## Subtitles (speech recognition)
+
+Speech recognition uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`whisper-cli`), which the Docker image includes. Elsewhere install it yourself (`brew install whisper-cpp` on macOS, your distribution's `whisper.cpp` package, or a release build). Without it, the Subtitles feature still adds your own `.srt`/`.vtt` files to videos.
+
+Models are **not** bundled: each one is downloaded once, the first time it's used, from Hugging Face (`ggerganov/whisper.cpp`). A small voice-activity model (`ggml-silero-v5.1.2.bin`, under 1 MB) comes along to skip silence and music.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WHISPER_PATH` | `whisper-cli` (or `whisper-cpp`) on `PATH` | The whisper.cpp command. |
+| `WHISPER_MODEL` | `small` | Model used when a request doesn't pick one: `tiny` (75 MB), `base` (142 MB), `small` (466 MB), `medium` (1.5 GB) or `large-v3-turbo` (547 MB, the most accurate; it can't translate). For Vietnamese and other languages that aren't English, use `small` or better. |
+| `WHISPER_MODELS_DIR` | `WORK_DIR/models` (server), `~/.cache/compress-media/models` (CLI); `/data/models` in Docker | Where models are kept. They're never deleted by the app. |
+| `WHISPER_DOWNLOAD` | `true` | `false` never downloads: put the `ggml-*.bin` files in `WHISPER_MODELS_DIR` yourself (for servers without internet access). |
+| `WHISPER_MODEL_URL` | `https://huggingface.co/ggerganov/whisper.cpp/resolve/main` | Where models are downloaded from, e.g. your own mirror. |
+| `WHISPER_THREADS` | CPU cores, up to 8 | Threads per transcription. |
+
+Burning subtitles into the picture needs an ffmpeg with libass (the bundled one and Alpine's have it) and fonts: the Docker image includes DejaVu, which covers Vietnamese and other Latin, Greek and Cyrillic scripts. For Chinese, Japanese or Korean, add a CJK font (e.g. `font-noto-cjk`) to the image.
+
 ## Queue and scaling
 
 | Variable | Default | Description |
@@ -105,6 +122,7 @@ Jobs can carry a `webhook` URL that's called when they finish. See [api.md → W
 | `FFMPEG_PATH` | bundled `ffmpeg-static` | Path to ffmpeg. The Docker image uses Alpine's (`/usr/bin/ffmpeg`), which is much faster on ARM. |
 | `FFPROBE_PATH` | bundled `@ffprobe-installer` | Path to ffprobe. |
 | `GS_PATH` | `gs` (`gswin64c` on Windows) | Ghostscript, for PDF compression. The PDF feature is off when it's not found. |
+| `WHISPER_PATH` | `whisper-cli` | whisper.cpp, for subtitles (see [Subtitles](#subtitles-speech-recognition)). |
 
 HEIC decoding needs no configuration. It uses `sips` on macOS, or `heif-dec`/`heif-convert` (libheif) when found on `PATH`.
 

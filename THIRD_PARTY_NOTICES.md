@@ -8,13 +8,17 @@ This is a summary, not legal advice. The license texts ship with each component.
 
 | Component | License | How it's used | Where it ends up |
 |---|---|---|---|
-| **FFmpeg** with x264, x265, libvpx, SVT-AV1, LAME, Opus… | **GPL-2.0-or-later / GPL-3.0-or-later** (x264 and x265 make the build GPL) | Run as a **separate program** (`child_process`); not linked into Compress Media | npm: downloaded by `ffmpeg-static` at install time. Docker: Alpine's `ffmpeg` package. |
+| **FFmpeg** with x264, x265, libvpx, SVT-AV1, LAME, Opus, libass… | **GPL-2.0-or-later / GPL-3.0-or-later** (x264 and x265 make the build GPL) | Run as a **separate program** (`child_process`); not linked into Compress Media | npm: downloaded by `ffmpeg-static` at install time. Docker: Alpine's `ffmpeg` package. |
 | `ffmpeg-static` (npm) | GPL-3.0-or-later | Installer that fetches the FFmpeg binary; only its path is read | `node_modules` (npm installs) |
 | FFprobe via `@ffprobe-installer/*` | LGPL-2.1 (package), GPL (binary) | Separate program | `node_modules`; Docker uses Alpine's `ffprobe` |
 | **Ghostscript** | **AGPL-3.0-or-later** | Separate program, for PDF compression only | Docker image (optional, see below). Not installed by npm. |
 | **libvips** (through sharp) | **LGPL-3.0-or-later** | Dynamically linked shared library, shipped as its own npm package (`@img/sharp-libvips-*`) that can be replaced | `node_modules`, Docker image |
 | sharp | Apache-2.0 | Library | `node_modules`, Docker image |
 | **libheif** (`heif-dec`) | LGPL-3.0 (tools: MIT) | Separate program, HEIC decoding in Docker | Docker image |
+| **whisper.cpp** (`whisper-cli`) with **ggml** | MIT | Separate program, speech recognition for subtitles | Docker image (Alpine's `whisper.cpp` package; optional, see below). Not installed by npm. |
+| **OpenAI Whisper** model weights (`ggml-*.bin`, converted by the whisper.cpp project) | MIT | Data read by whisper.cpp | **Not shipped.** Downloaded at runtime, on first use, from Hugging Face (`ggerganov/whisper.cpp`) into `WHISPER_MODELS_DIR` |
+| **Silero VAD** model (`ggml-silero-v5.1.2.bin`) | MIT | Data read by whisper.cpp to skip silence | **Not shipped.** Downloaded at runtime from Hugging Face (`ggml-org/whisper-vad`) |
+| **DejaVu fonts** (`font-dejavu`) with fontconfig | Bitstream Vera / DejaVu font license (free; DejaVu changes are public domain); fontconfig: MIT-style | Fonts that ffmpeg (libass) draws burned-in subtitles with | Docker image |
 | **Mediabunny** | **MPL-2.0** | Unmodified file served to browsers for in-browser compression (`/vendor/mediabunny.mjs`) | `node_modules`; sent to browsers as-is, license header intact |
 | AWS SDK for JavaScript v3 | Apache-2.0 | Library (object storage) | `node_modules` |
 | Express, multer, BullMQ, ioredis, yazl and their dependencies | MIT, ISC, BSD, 0BSD, Apache-2.0 | Libraries | `node_modules` |
@@ -36,6 +40,8 @@ This is a summary, not legal advice. The license texts ship with each component.
 
 **If you redistribute the npm package or a build of this repository**, it does not include FFmpeg or Ghostscript binaries itself. `ffmpeg-static` downloads FFmpeg on the user's machine, and Ghostscript is whatever the user installed.
 
+**whisper.cpp, the Whisper models and Silero VAD** are MIT licensed, which only asks that the copyright and license notice be kept. whisper.cpp runs as a separate program. The models are never part of this repository or the image: each server or CLI downloads them from their publishers the first time they're needed. **libass** (ISC), which draws burned-in subtitles, is part of the FFmpeg builds above. The **DejaVu fonts** may be redistributed freely; the license only restricts selling the fonts on their own and reusing the names "Bitstream" or "DejaVu" for modified versions.
+
 **Mediabunny (MPL-2.0)** is served unmodified, so its source is the file itself. If you change `node_modules/mediabunny`, you must publish those changed files under the MPL-2.0.
 
 ## Leaving out Ghostscript (AGPL)
@@ -44,6 +50,10 @@ Some organisations don't allow AGPL software at all. PDF compression is optional
 
 - **Docker:** use the `-nopdf` images, e.g. `runsnip/compress-media:2.0.0-nopdf` or `:latest-nopdf` (also on GHCR), or build with `--build-arg GHOSTSCRIPT=false`. The images without the suffix include Ghostscript.
 - **npm / native:** Ghostscript is only used if it's installed (`gs` on `PATH`, or `GS_PATH`).
+
+## Leaving out whisper.cpp
+
+Speech recognition is optional. Build the image with `--build-arg WHISPER=false` to leave whisper.cpp out; the Subtitles mode then only adds the user's own `.srt`/`.vtt` files to videos. Natively, whisper.cpp is only used if it's installed (`whisper-cli` on `PATH`, or `WHISPER_PATH`).
 
 ## Patents
 
@@ -61,5 +71,10 @@ H.264 (AVC), H.265 (HEVC) and AAC may be covered by patents in some countries. L
 | sharp | https://github.com/lovell/sharp/blob/main/LICENSE (Apache-2.0) |
 | libheif | https://github.com/strukturag/libheif/blob/master/COPYING (LGPL-3.0) |
 | Mediabunny | https://github.com/Vanilagy/mediabunny/blob/main/LICENSE (MPL-2.0) |
+| whisper.cpp / ggml | https://github.com/ggml-org/whisper.cpp/blob/master/LICENSE (MIT) |
+| Whisper models | https://github.com/openai/whisper/blob/main/LICENSE (MIT) |
+| Silero VAD | https://github.com/snakers4/silero-vad/blob/master/LICENSE (MIT) |
+| DejaVu fonts | https://dejavu-fonts.github.io/License.html |
+| libass | https://github.com/libass/libass/blob/master/COPYING (ISC) |
 | AWS SDK for JavaScript | https://github.com/aws/aws-sdk-js-v3/blob/main/LICENSE (Apache-2.0) |
 | Node.js dependencies | each package's `LICENSE` file in `node_modules/` |

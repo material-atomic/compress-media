@@ -31,8 +31,13 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_PREFIX: ${S3_PREFIX:-compress-media/}
       S3_SETUP_CORS: ${S3_SETUP_CORS:-false}
+      # Subtitles: speech model (tiny | base | small | medium | large-v3-turbo), downloaded once into
+      # /data/models on first use. WHISPER_DOWNLOAD=false never downloads (copy the models in yourself).
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DOWNLOAD: ${WHISPER_DOWNLOAD:-true}
     volumes:
       # Scratch space for uploads and results — make sure it has room for your largest videos.
+      # It also keeps the speech models (/data/models), so they're downloaded only once.
       - media-data:/data
 
 volumes:

@@ -52,6 +52,8 @@ before(async () => {
       AUTH_ENABLED: 'false', // login is covered by auth.test.js
       WEBHOOK_ALLOW_PRIVATE: 'true', // the test receiver runs on localhost
       WEBHOOK_SECRET: 'hook-secret',
+      // Speech models are big: share the CLI's cache instead of downloading into the temp WORK_DIR.
+      WHISPER_MODELS_DIR: process.env.WHISPER_MODELS_DIR || path.join(os.homedir(), '.cache', 'compress-media', 'models'),
     },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
@@ -285,6 +287,187 @@ test('batch status, ZIP of results, live events and webhooks', async () => {
   bad.append('webhook', 'file:///etc/passwd');
   bad.append('file', await fs.openAsBlob(b), 'zip-b.png');
   assert.equal((await fetch(`${BASE}/api/jobs`, { method: 'POST', body: bad })).status, 400);
+});
+
+test('animations: multipart frames or chunked uploads → one animated job', async () => {
+  const red = await gen('red.png', ['-f', 'lavfi', '-i', 'color=c=red:size=320x200', '-frames:v', '1']);
+  const blue = await gen('blue.jpg', ['-f', 'lavfi', '-i', 'color=c=blue:size=200x320', '-frames:v', '1']);
+  const wav = await gen('beep.wav', ['-f', 'lavfi', '-i', 'sine', '-t', '1']);
+  const sharp = require('sharp');
+
+  const post = async (files, options) => {
+    const form = new FormData();
+    form.append('options', JSON.stringify(options));
+    for (const f of files) form.append('frames', await fs.openAsBlob(f), path.basename(f));
+    const res = await fetch(`${BASE}/api/animations`, { method: 'POST', body: form });
+    return { status: res.status, body: await res.json() };
+  };
+
+  assert.equal((await post([red], {})).status, 400, 'one frame is not an animation');
+  assert.equal((await post([red, wav], {})).status, 415, 'frames must be images');
+  const json0 = (body) => fetch(`${BASE}/api/animations`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await json0({ frames: ['nope'] })).status, 400, 'too few frames is checked before uploads are looked up');
+  assert.equal((await json0({ frames: ['nope', 'nada'] })).status, 404);
+
+  const made = await post([red, blue, red], { animation: { format: 'gif', delay: 300, maxDim: 160 } });
+  assert.equal(made.status, 200, made.body.error);
+  assert.equal(made.body.kind, 'animation');
+  assert.deepEqual(made.body.frames.map((f) => f.name), ['red.png', 'blue.jpg', 'red.png']);
+  const job = await waitFor(made.body.id);
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(job.outputName, 'red-animated.gif');
+  assert.deepEqual([job.info.frames, job.info.width, job.info.height], [3, 160, 100]);
+  const gif = Buffer.from(await (await fetch(`${BASE}/api/jobs/${job.id}/file`)).arrayBuffer());
+  const meta = await sharp(gif, { animated: true }).metadata();
+  assert.equal(meta.pages, 3);
+  assert.deepEqual(meta.delay, [300, 300, 300]);
+  // "original" is the first frame
+  assert.equal((await fetch(`${BASE}/api/jobs/${job.id}/original`)).headers.get('content-type'), 'image/png');
+
+  // Redo with other options, like the UI's Redo button.
+  const redo = await (await fetch(`${BASE}/api/jobs/${job.id}/retry`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ options: { animation: { format: 'webp' } } }),
+  })).json();
+  assert.ok(['queued', 'processing'].includes(redo.status), redo.status);
+  const again = await waitFor(job.id);
+  assert.equal(again.outputName, 'red-animated.webp');
+
+  // Chunked: upload each frame, then reference the upload ids.
+  const json = (method, url, body) => fetch(`${BASE}${url}`, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+  const uploadIds = [];
+  for (const f of [blue, red]) {
+    const bytes = fs.readFileSync(f);
+    const up = await (await json('POST', '/api/uploads', { name: path.basename(f), size: bytes.length })).json();
+    assert.equal(up.partCount, 1);
+    const url = up.direct ? (await (await json('POST', `/api/uploads/${up.uploadId}/parts/1/url`)).json()).url : `${BASE}/api/uploads/${up.uploadId}/parts/1`;
+    assert.equal((await fetch(url, { method: 'PUT', body: bytes, headers: up.direct ? {} : { 'Content-Type': 'application/octet-stream' } })).status, 200);
+    uploadIds.push(up.uploadId);
+  }
+  const chunked = await json('POST', '/api/animations', { frames: uploadIds, options: { animation: { format: 'mp4', delay: 500 } } });
+  assert.equal(chunked.status, 200);
+  const done = await waitFor((await chunked.json()).id);
+  assert.equal(done.status, 'done', done.error);
+  assert.equal(done.outputName, 'blue-animated.mp4');
+  assert.equal(done.info.width % 2, 0);
+  // The uploads were consumed by the job.
+  assert.equal((await json('GET', `/api/uploads/${uploadIds[0]}`)).status, 404);
+  assert.equal((await json('POST', '/api/animations', { frames: uploadIds })).status, 404, 'upload ids can only be used once');
+
+  await fetch(`${BASE}/api/jobs/${job.id}`, { method: 'DELETE' });
+  assert.equal((await fetch(`${BASE}/api/jobs/${job.id}`)).status, 404);
+});
+
+/** Speech in a video, made with the system's text-to-speech (`say` on macOS, espeak-ng on Linux). */
+async function speechVideo() {
+  const run = promisify(execFile);
+  const speech = path.join(tmp, 'speech.aiff');
+  const text = 'Hello everyone. Today I will show you how to compress a screen recording.';
+  try {
+    if (process.platform === 'darwin') await run('say', ['-v', 'Samantha', '-o', speech, text]);
+    else await run('espeak-ng', ['-w', speech, text]);
+  } catch {
+    return null;
+  }
+  return gen('talk.mov', ['-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=15', '-i', speech, '-shortest',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac']);
+}
+
+test('subtitles: your own file as a track, burned in, or converted; errors', async () => {
+  const cfg = await (await fetch(`${BASE}/api/config`)).json();
+  const video = await gen('subs.mp4', ['-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=15', '-f', 'lavfi', '-i', 'sine', '-t', '3',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac']);
+  const srtFile = path.join(tmp, 'subs.srt');
+  fs.writeFileSync(srtFile, '1\n00:00:00,500 --> 00:00:01,500\nXin chào\n\n2\n00:00:01,500 --> 00:00:02,500\nmọi người\n');
+  const post = async (fields) => {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) {
+      if (typeof v === 'string') form.append(k, v);
+      else form.append(k, await fs.openAsBlob(v.file), path.basename(v.file));
+    }
+    const res = await fetch(`${BASE}/api/subtitles`, { method: 'POST', body: form });
+    return { status: res.status, body: await res.json() };
+  };
+  const probeStreams = async (buf, name) => {
+    const file = path.join(tmp, name);
+    fs.writeFileSync(file, buf);
+    const ffprobe = process.env.FFPROBE_PATH || require('@ffprobe-installer/ffprobe').path;
+    const { stdout } = await promisify(execFile)(ffprobe, ['-v', 'error', '-print_format', 'json', '-show_streams', file]);
+    return JSON.parse(stdout).streams;
+  };
+
+  // A selectable track: streams are copied, the subtitles become mov_text tagged "vie".
+  const track = await post({ file: { file: video }, subtitles: { file: srtFile }, options: JSON.stringify({ subtitles: { embed: 'track', language: 'vi' } }) });
+  assert.equal(track.status, 200, track.body.error);
+  assert.equal(track.body.kind, 'subtitles');
+  assert.equal(track.body.options.text, undefined, 'the text is not echoed back');
+  let job = await waitFor(track.body.id);
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(job.outputName, 'subs-subtitled.mp4');
+  assert.deepEqual([job.info.cues, job.info.language, job.info.embed], [2, 'vi', 'track']);
+  const streams = await probeStreams(Buffer.from(await (await fetch(`${BASE}/api/jobs/${job.id}/file`)).arrayBuffer()), 'track.mp4');
+  const sub = streams.find((st) => st.codec_type === 'subtitle');
+  assert.equal(sub.codec_name, 'mov_text');
+  assert.equal(sub.tags.language, 'vie');
+  assert.equal(streams.find((st) => st.codec_type === 'video').codec_name, 'h264');
+
+  // The subtitles stay available whatever the output, as SRT or WebVTT.
+  const vtt = await fetch(`${BASE}/api/jobs/${job.id}/subtitles?format=vtt`);
+  assert.equal(vtt.headers.get('content-type').split(';')[0], 'text/vtt');
+  assert.match(await vtt.text(), /^WEBVTT\n\n00:00:00\.500 --> 00:00:01\.500\nXin chào/);
+  assert.match(vtt.headers.get('content-disposition'), /subs\.vi\.vtt/);
+
+  // Redo as a subtitle file: the given subtitles are reused, not transcribed.
+  await fetch(`${BASE}/api/jobs/${job.id}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ options: { subtitles: { embed: 'none', format: 'vtt' } } }) });
+  job = await waitFor(job.id);
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(job.outputName, 'subs.vi.vtt');
+  assert.match(await (await fetch(`${BASE}/api/jobs/${job.id}/file`)).text(), /mọi người/);
+
+  // Burned in (needs ffmpeg with libass): re-encoded, no subtitle stream.
+  if (cfg.burnSubtitles) {
+    const edited = '1\n00:00:00,000 --> 00:00:03,000\nĐã sửa\n';
+    await fetch(`${BASE}/api/jobs/${job.id}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ options: { subtitles: { embed: 'burn', text: edited } } }) });
+    job = await waitFor(job.id);
+    assert.equal(job.status, 'done', job.error);
+    assert.equal(job.outputName, 'subs-subtitled.mp4');
+    const burned = await probeStreams(Buffer.from(await (await fetch(`${BASE}/api/jobs/${job.id}/file`)).arrayBuffer()), 'burn.mp4');
+    assert.equal(burned.some((st) => st.codec_type === 'subtitle'), false);
+    assert.match(await (await fetch(`${BASE}/api/jobs/${job.id}/subtitles`)).text(), /Đã sửa/, 'the edited text is kept');
+  }
+
+  // Errors
+  const wav = await gen('voice.wav', ['-f', 'lavfi', '-i', 'sine', '-t', '1']);
+  assert.equal((await post({ file: { file: srtFile } })).status, 415, 'not a video');
+  assert.equal((await post({ file: { file: wav }, subtitles: { file: srtFile }, options: JSON.stringify({ subtitles: { embed: 'track' } }) })).status, 400, 'audio has no picture');
+  const junk = path.join(tmp, 'notes.txt');
+  fs.writeFileSync(junk, 'hi');
+  assert.equal((await post({ file: { file: video }, subtitles: { file: junk } })).status, 415, 'subtitles must be srt/vtt');
+  if (!cfg.whisper) assert.equal((await post({ file: { file: video } })).status, 400, 'no speech recognition without whisper');
+  const json = (body) => fetch(`${BASE}/api/subtitles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await json({ upload: 'nope' })).status, 404);
+  assert.equal((await json({})).status, 400);
+  // Broken subtitle text is refused up front with a clear message.
+  const broken = await post({ file: { file: video }, options: JSON.stringify({ subtitles: { text: 'not subtitles' } }) });
+  assert.equal(broken.status, 400);
+  assert.match(broken.body.error, /No subtitles found/);
+});
+
+test('subtitles: speech recognition (whisper.cpp, when installed)', async (t) => {
+  const cfg = await (await fetch(`${BASE}/api/config`)).json();
+  if (!cfg.whisper) return t.skip('whisper.cpp is not installed');
+  const video = await speechVideo();
+  if (!video) return t.skip('no text-to-speech (say / espeak-ng) to make a test voice');
+  const form = new FormData();
+  form.append('file', await fs.openAsBlob(video), 'talk.mov');
+  form.append('options', JSON.stringify({ subtitles: { model: 'tiny' } }));
+  const res = await (await fetch(`${BASE}/api/subtitles`, { method: 'POST', body: form })).json();
+  const job = await waitFor(res.id, 300_000); // the first run downloads the model (75 MB)
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(job.info.language, 'en');
+  assert.equal(job.outputName, 'talk.en.srt');
+  const srt = await (await fetch(`${BASE}/api/jobs/${job.id}/file`)).text();
+  assert.match(srt, /^1\n00:00:\d\d,\d{3} --> /);
+  assert.match(srt.toLowerCase(), /screen recording/);
 });
 
 test('webhook URLs to private networks are refused by default', async () => {

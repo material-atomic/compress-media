@@ -59,7 +59,7 @@ jobs:
           # metadata-action would label the image with just the repo's license (MIT); the image also
           # contains GPL/AGPL/LGPL/MPL binaries (see THIRD_PARTY_NOTICES.md).
           labels: |
-            org.opencontainers.image.licenses=MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND AGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0
+            org.opencontainers.image.licenses=MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND AGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0 AND Bitstream-Vera
 
       # Same tags with a -nopdf suffix: the image without Ghostscript (AGPL-3.0) and PDF support.
       - id: meta-nopdf
@@ -77,7 +77,7 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest
           labels: |
-            org.opencontainers.image.licenses=MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0
+            org.opencontainers.image.licenses=MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0 AND Bitstream-Vera
 
       - uses: docker/build-push-action@v6
         with:
@@ -104,6 +104,8 @@ jobs:
           V=${GITHUB_REF_NAME#v}
           docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V compress-media --version
           docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V compress-media info | grep 'PDF compression:   yes'
+          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V compress-media info | grep 'Subtitles:         yes (whisper-cli), burn-in'
+          docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V-nopdf compress-media info | grep 'Subtitles:         yes'
           docker run --rm ${{ env.DOCKERHUB_IMAGE }}:$V-nopdf compress-media info | grep 'PDF compression:   no'
           docker run --rm --entrypoint sh ${{ env.DOCKERHUB_IMAGE }}:$V-nopdf -c '! command -v gs'
           docker run -d --name app -p 4747:4747 ${{ env.DOCKERHUB_IMAGE }}:$V
@@ -114,5 +116,5 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.DOCKERHUB_IMAGE }}
-          short-description: Self-hosted video, image & audio compressor — web UI, HTTP API and CLI
+          short-description: Self-hosted video, image, audio & PDF compressor, GIF maker and subtitles — web UI, API, CLI
           readme-filepath: ./DOCKERHUB.md

@@ -7,7 +7,7 @@
 [![Image size](https://img.shields.io/docker/image-size/runsnip/compress-media?sort=semver)](https://hub.docker.com/r/runsnip/compress-media)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-A self-hosted compressor for **videos, images, audio and PDFs**. It comes with a drag-and-drop web UI, a CLI and an HTTP API, and uses ffmpeg, sharp and Ghostscript. It can also compress **right in the browser**, so files never leave the device.
+A self-hosted compressor for **videos, images, audio and PDFs**, with a GIF maker and **subtitles from speech**. It comes with a drag-and-drop web UI, a CLI and an HTTP API, and uses ffmpeg, sharp, Ghostscript and whisper.cpp. It can also compress **right in the browser**, so files never leave the device.
 
 - It was built for multi-gigabyte QuickTime screen recordings: a typical 2880×1800 60 fps recording comes out **90–98% smaller**.
 - Files are processed on your own machine or server.
@@ -17,7 +17,7 @@ A self-hosted compressor for **videos, images, audio and PDFs**. It comes with a
 
 ## Contents
 
-[Features](#features) · [New in 2.0](#new-in-20) · [Ways to use it](#ways-to-use-it) · [Quick start](#quick-start) · [Web UI](#web-ui) · [CLI](#cli) · [HTTP API](#http-api) · [Configuration](#configuration) · [Object storage](#object-storage) · [Platforms](#platform-support) · [AI agents](#use-with-ai-agents) · [Security](#security) · [Development](#development) · [License](#license)
+[Features](#features) · [New in 2.1](#new-in-21) · [Planned for 2.2](#planned-for-22) · [New in 2.0](#new-in-20) · [Ways to use it](#ways-to-use-it) · [Quick start](#quick-start) · [Web UI](#web-ui) · [CLI](#cli) · [HTTP API](#http-api) · [Configuration](#configuration) · [Object storage](#object-storage) · [Platforms](#platform-support) · [AI agents](#use-with-ai-agents) · [Security](#security) · [Development](#development) · [License](#license)
 
 ## Features
 
@@ -30,10 +30,12 @@ A self-hosted compressor for **videos, images, audio and PDFs**. It comes with a
   - Keep the format or convert to JPEG, WebP, AVIF or PNG.
   - Quality setting and maximum edge.
   - Lossy PNG palette, like pngquant.
-  - Animated GIF and WebP stay animated.
+  - Animated GIF and WebP stay animated, even when the chosen format can't animate.
   - EXIF and GPS metadata are removed by default.
 - **Audio** (WAV, M4A, FLAC, AIFF, MP3, …) → MP3, M4A or Opus, with a bitrate setting and optional mono.
 - **PDF** → smaller PDF, with presets from 72 to 300 dpi images and optional grayscale (Ghostscript).
+- **Animations from still images** (GIF maker): 2–1000 screenshots or photos → one animated GIF, animated WebP or MP4, with a delay per frame, looping and a size cap.
+- **Subtitles**: speech in a video or audio file → an SRT or WebVTT file with times and text (whisper.cpp, language detected or chosen, optional translation to English), or subtitles added to the video as a selectable track or burned into the picture. Your own `.srt`/`.vtt` works too.
 - **In-browser mode (beta)**: videos, audio and images compressed on the user's own device with WebCodecs. Nothing is uploaded, and the server takes over whatever the browser can't do.
 - **Uploads**
   - Chunked (8 MB parts, 4 in parallel).
@@ -49,6 +51,32 @@ A self-hosted compressor for **videos, images, audio and PDFs**. It comes with a
 - **Integrations**: an HTTP API with Server-Sent Events, signed webhooks and batch status.
 - **Scales out**: an optional Redis queue with separate workers.
 - **Web UI** in English and Vietnamese, with light and dark themes. It works on phones.
+
+## New in 2.1
+
+- **Make an animation.** Turn 2–1000 still images into one animated **GIF**, animated **WebP** or **MP4**.
+  - Web UI: switch to **Make an animation** above the file area, drop images, and put the frames in order by dragging (or with ← →).
+  - Settings: time per frame, loop count, maximum size, and whether images of another shape get borders (fit) or are cropped (fill).
+  - CLI: `compress-media animate shot-*.png -o demo.gif`. Folders are sorted by name, with numbers in order (`shot-2` before `shot-10`).
+  - API: `POST /api/animations`.
+- **Subtitles.** Speech → a subtitle file with times and text, ready for YouTube Studio (Subtitles → Upload file → With timing), or subtitles put into the video.
+  - Speech recognition by [whisper.cpp](https://github.com/ggml-org/whisper.cpp). The language is detected or chosen, and the subtitles can be translated into English. Models are downloaded once, on first use (75 MB – 1.5 GB).
+  - Results: `talk.vi.srt` (or `.vtt`); or `talk-subtitled.<ext>` with a **track** viewers turn on (no re-encode), or **burned in** (MP4, for TikTok, Reels, Zalo).
+  - Have subtitles already? Use your own `.srt`/`.vtt` instead of speech recognition.
+  - Web UI: the **Subtitles** mode, with **View & edit** to fix the text and make the result again. CLI: `compress-media subtitles talk.mov --lang vi`. API: `POST /api/subtitles`.
+- **Fix: animated images are never flattened.** An animated GIF or WebP used to become a single frame when the chosen image format can't animate. Now AVIF becomes animated WebP, JPEG and PNG keep the GIF, and the result says so.
+
+## Planned for 2.2
+
+Next up; not built yet, and details may change.
+
+- **Cleaner sound.** Loudness normalisation to the level YouTube and TikTok expect (−14 LUFS), and background-noise reduction (fans, air conditioning) for video and audio.
+- **Rotate, flip and change speed.** Turn a sideways video upright, mirror it, or play it 1.5×, 2× or as a timelapse.
+- **Cut the silences.** Remove long pauses from talking videos automatically (jump cuts), using the same speech detection as subtitles.
+- **Watermark.** Put a logo or text on videos and images, with position and opacity.
+- **YouTube chapters.** Chapter timestamps suggested from the subtitles, ready to paste into the video description.
+- **Translate subtitles** into other languages, not only English (for example English → Vietnamese).
+- **Join videos.** Put several clips together into one.
 
 ## New in 2.0
 
@@ -107,7 +135,7 @@ npm start               # http://localhost:4747
 
 You don't need to install ffmpeg; `npm install` downloads a build. The startup log prints the login (set `AUTH_USERNAME`/`AUTH_PASSWORD` in `.env`, or `AUTH_ENABLED=false` for a private machine). If port 4747 is taken, the server refuses to start rather than colliding with the other app; run `PORT=4848 npm start` instead.
 
-For PDF compression natively, install Ghostscript (`brew install ghostscript`, `apt install ghostscript`); the Docker image includes it.
+For PDF compression natively, install Ghostscript (`brew install ghostscript`, `apt install ghostscript`); for subtitles from speech, install whisper.cpp (`brew install whisper-cpp`). The Docker image includes both.
 
 ## Web UI
 
@@ -119,6 +147,12 @@ For PDF compression natively, install Ghostscript (`brew install ghostscript`, `
    - **Redo** re-compresses with the current settings, without uploading again.
 4. If the network drops, the row shows **Resume**. Only the missing parts are sent. Adding the same file again after a reload also resumes.
 5. **Download all** saves every result, and **Clear list** removes finished rows (and their files on the server).
+
+The switch at the top of the page picks what to do: **Compress files**, **Make an animation** or **Subtitles**. The settings and the file area follow it.
+
+To make a GIF from screenshots, switch to **Make an animation**. Dropped images become numbered frames: drag them (or use ← →) to reorder, remove one, or **Clear**. Choose the format, time per frame, loop and size in the **Animation** tab, then press **Create animation**. The result is one row, with **Redo** and **View** like any other. Animations are always made on the server, even with **Compress on: This browser**.
+
+For subtitles, switch to **Subtitles** and drop videos (or audio). In the **Subtitles** tab choose the result (**Subtitle file**, **Video + track** or **Burned in**), the file format (SRT or WebVTT), the spoken language, **Translate into English subtitles** and the accuracy (the speech model; the first use downloads it). To use your own subtitles, drop the `.srt`/`.vtt` together with the video, with the same name (`talk.mov` + `talk.srt`). Rows show each stage: downloading the model, listening and writing subtitles, adding them to the video. When done, **Download** saves the result (and **SRT** the subtitle file, when the result is a video). **View & edit** plays the video with the subtitles next to an editor: **Preview changes**, then **Save** to make the result again from your text, without new speech recognition. **Redo** reuses the transcript unless the language, translation or model changed. Subtitles are always made on the server.
 
 Rows warn you when a result isn't smaller than the original; in that case, keep the original. The UI language follows the browser, and you can switch with EN/VI in the header.
 
@@ -136,6 +170,9 @@ compress-media ~/Pictures/trip -r --image-format webp --max-dim 2048 -o web
 compress-media memo.m4a --audio-format opus --bitrate 48 --mono
 compress-media demo.mov --start 0:04 --end 0:19 --video-format gif   # a GIF for an issue
 compress-media cv.pdf --pdf-quality ebook                            # a CV for email
+compress-media animate shot-*.png --delay 700 --max-dim 1200 -o walkthrough.gif   # screenshots → GIF
+compress-media subtitles talk.mov --lang vi              # speech → talk.vi.srt (e.g. for YouTube)
+compress-media subtitles talk.mov --srt talk.srt --embed burn --font-size large   # your subtitles, drawn into the video
 compress-media probe clip.mov                             # resolution, fps, duration, codecs
 compress-media *.mov --json -q > report.json              # machine-readable report
 compress-media serve                                      # the web UI
@@ -157,7 +194,7 @@ The web UI is built on a small JSON API you can call yourself. Authenticate with
 4. Poll the job.
 5. Download the result.
 
-There's also a ZIP of many results, live progress over Server-Sent Events, and signed webhooks when a job finishes. Two ready-to-use clients handle retries and both storage modes:
+Animations have their own endpoint, `POST /api/animations`, which takes the frames in order, and so do subtitles: `POST /api/subtitles` takes a video (and optionally your `.srt`/`.vtt`), and `GET /api/jobs/:id/subtitles` returns the text as SRT or WebVTT. There's also a ZIP of many results, live progress over Server-Sent Events, and signed webhooks when a job finishes. Two ready-to-use clients handle retries and both storage modes:
 
 ```bash
 export COMPRESS_MEDIA_USER=me@example.com COMPRESS_MEDIA_PASSWORD=…
@@ -184,6 +221,8 @@ Everything is set with environment variables: inline, with `docker run -e`, or i
 | `QUEUE` / `REDIS_URL` / `ROLE` | `memory` / — / `all` | Shared Redis queue, and `web` / `worker` processes for scaling out |
 | `HW_ENCODER` | `auto` | `off`, or force `videotoolbox` / `nvenc` / `qsv` / `vaapi` / `amf` |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | — | Object storage |
+| `WHISPER_MODEL` | `small` | Speech model for subtitles: `tiny`, `base`, `small`, `medium` or `large-v3-turbo` |
+| `WHISPER_MODELS_DIR` / `WHISPER_DOWNLOAD` | `WORK_DIR/models` / `true` | Where speech models are kept; `false` never downloads them (offline servers) |
 
 All variables are in **[docs/configuration.md](docs/configuration.md)**, and a commented template is in [`.env.example`](.env.example).
 
@@ -219,6 +258,7 @@ Per-provider settings, CORS, a lifecycle rule, an IAM policy and scaling notes a
 | Hardware encoding | ✅ VideoToolbox | NVENC, VA-API, Quick Sync (auto-detected) | NVENC, Quick Sync, AMF (auto-detected) |
 | HEIC photos | ✅ built in | install `libheif-examples` / `libheif-tools` | use Docker |
 | PDF | install Ghostscript | install `ghostscript` | install Ghostscript, or use Docker |
+| Subtitles from speech | `brew install whisper-cpp` | the `whisper.cpp` package, or build it | a whisper.cpp release build (`WHISPER_PATH`), or use Docker |
 | In-browser mode | Chrome, Edge, Firefox, Safari (over HTTPS or localhost; codecs vary by browser, and the server fills the gaps) | | |
 
 On Linux ARM, point `FFMPEG_PATH`/`FFPROBE_PATH` at the distribution's ffmpeg; the bundled generic build is much slower there. The Docker image already does this.
@@ -235,6 +275,9 @@ On Linux ARM, point `FFMPEG_PATH`/`FFPROBE_PATH` at the distribution's ffmpeg; t
 | Voice memo | Opus · 48 kbps · mono | `--audio-format opus --bitrate 48 --mono` |
 | A clip for docs or an issue | GIF · trim · 480p | `--video-format gif --start 4 --end 19` |
 | CV or portfolio PDF | PDF · Balanced | `--pdf-quality ebook` |
+| A GIF from screenshots | Make an animation · GIF · 700 ms | `animate shot-*.png --delay 700` |
+| Subtitles for YouTube | Subtitles · Subtitle file · SRT · Balanced | `subtitles talk.mov --lang vi` |
+| Captions for TikTok / Reels | Subtitles · Burned in · Large | `subtitles clip.mov --embed burn --font-size large` |
 
 ## Use with AI agents
 
@@ -272,13 +315,14 @@ browser ──parts──▶ server.js (web) ───────────�
 browser ──parts──▶ S3 bucket ◀── presign ── server.js │        (STORAGE=s3)
 browser ── WebCodecs (public/local.js) ── nothing uploaded      ("Compress on: This browser")
                           job queue (memory, or Redis) ▼
-                    worker(s) ──▶ lib/media.js ──▶ ffmpeg / sharp / Ghostscript
+                    worker(s) ──▶ lib/media.js ──▶ ffmpeg / sharp / Ghostscript / whisper.cpp
 terminal / agent ──▶ bin/cli.js ──▶ lib/media.js
 ```
 
 | Path | What it is |
 |---|---|
 | [`lib/media.js`](lib/media.js) | The engine: type detection, capabilities (VideoToolbox, HEIC), ffprobe, encoders |
+| [`lib/subtitles.js`](lib/subtitles.js) | SRT/WebVTT reading and writing, readable subtitle lines, speech model downloads |
 | [`lib/storage.js`](lib/storage.js) | Where uploads and results live (`local` or `s3`) |
 | [`lib/jobs.js`](lib/jobs.js) · [`lib/store.js`](lib/store.js) | Job lifecycle, and where jobs and the queue live (`memory` or `redis`) |
 | [`lib/auth.js`](lib/auth.js) · [`lib/webhook.js`](lib/webhook.js) | Login, and signed webhooks |
@@ -318,6 +362,8 @@ The code is [MIT](LICENSE) licensed. Compress Media runs third-party software un
 | **sharp / libvips** | Apache-2.0 / **LGPL-3.0** | Dynamically linked, replaceable |
 | **libheif** (Docker) | LGPL-3.0 | Separate program |
 | **Mediabunny** (in-browser mode) | **MPL-2.0** | Served unmodified |
+| **whisper.cpp** (subtitles) | MIT | Separate program. Its speech models (MIT) are downloaded on first use, not shipped. |
+| **DejaVu fonts** (Docker) | Bitstream Vera / DejaVu (free) | Fonts for burned-in subtitles |
 | AWS SDK, Express, BullMQ, ioredis, yazl… | Apache-2.0 / MIT / ISC / BSD | Libraries |
 
 Your own code that uses Compress Media is not affected. **If you redistribute the Docker image**, it contains GPL/AGPL/LGPL binaries whose licenses apply to them. See **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** for what that means, where the sources are, and patent notes on H.264/H.265/AAC.

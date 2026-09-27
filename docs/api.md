@@ -42,6 +42,9 @@ examples/compress.sh "Screen Recording.mov" '{"video":{"resolution":1080,"fps":3
 | `POST /api/uploads/:id/complete` | Finish the upload and create a compression job |
 | `DELETE /api/uploads/:id` | Abort an upload |
 | `POST /api/jobs` | Single-request upload + job (small files, simple scripts) |
+| `POST /api/animations` | Make one animated GIF/WebP/MP4 from several images |
+| `POST /api/subtitles` | Subtitles for a video or audio file (speech recognition), or add subtitles to a video |
+| `GET /api/jobs/:id/subtitles` | The subtitles of a subtitles job, as SRT or WebVTT |
 | `GET /api/jobs?ids=a,b,c` | Status of several jobs in one call (unknown ids are left out) |
 | `GET /api/jobs/zip?ids=a,b,c` | Every finished result among these jobs, as one ZIP (streamed) |
 | `GET /api/jobs/:id` | Job status and progress |
@@ -49,18 +52,18 @@ examples/compress.sh "Screen Recording.mov" '{"video":{"resolution":1080,"fps":3
 | `POST /api/jobs/:id/cancel` | Cancel a queued or running job |
 | `POST /api/jobs/:id/retry` | Re-run with new options (no re-upload) |
 | `GET /api/jobs/:id/file` | Download the result (`?inline=1` to display instead) |
-| `GET /api/jobs/:id/original` | The uploaded original |
+| `GET /api/jobs/:id/original` | The uploaded original (for an animation, its first frame) |
 | `DELETE /api/jobs/:id` | Cancel if running, delete the job and its files |
 
 ## `GET /api/config`
 
 ```json
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "hardwareEncoder": true, "hardwareName": "nvenc", "hardwareCodecs": ["h264", "h265", "av1"],
   "av1": true, "webm": true, "pdf": true, "heicDecoder": "heif-dec",
   "maxUploadBytes": 0, "uploadPartBytes": 8388608, "uploadConcurrency": 4, "jobTtlMs": 10800000,
-  "storage": "local", "queue": "memory"
+  "storage": "local", "queue": "memory", "animationMaxFrames": 1000
 }
 ```
 
@@ -70,6 +73,9 @@ examples/compress.sh "Screen Recording.mov" '{"video":{"resolution":1080,"fps":3
 | `av1`, `webm` | Whether the AV1 codec and the WebM format are available |
 | `pdf` | Whether PDF files are accepted (Ghostscript present) |
 | `heicDecoder` | `null` when HEIC files can't be read |
+| `animationMaxFrames` | Most frames `POST /api/animations` accepts |
+| `whisper`, `burnSubtitles` | Speech recognition available (the whisper.cpp command, or `null`); subtitles can be burned in |
+| `subtitleModels`, `subtitleModel` | `[{ "name", "mb", "installed" }]` for each speech model, and the default one |
 
 ## Chunked uploads
 
@@ -99,6 +105,56 @@ Use this for anything bigger than a few MB. It is modelled on S3 multipart uploa
 ```bash
 curl -u "$AUTH_USERNAME:$AUTH_PASSWORD" -F file=@photo.heic -F 'options={"image":{"format":"webp","maxDim":1920}}' localhost:4747/api/jobs
 ```
+
+## Animations
+
+`POST /api/animations` makes **one** job from 2 or more still images, in order. Send the frames either way:
+
+- **Multipart** (small images, scripts): `multipart/form-data` with one `frames` file field per image, in order, plus `options` (a JSON string) and optionally `webhook`.
+  ```bash
+  curl -u "$AUTH_USERNAME:$AUTH_PASSWORD" -F frames=@1.png -F frames=@2.png -F frames=@3.png \
+    -F 'options={"animation":{"format":"gif","delay":700}}' localhost:4747/api/animations
+  ```
+- **Chunked** (big photos, object storage): upload each image with [chunked uploads](#chunked-uploads) but **don't complete them**. Then send JSON `{ "frames": ["<uploadId>", …], "options": { "animation": { … } }, "webhook": "https://…" }`. The uploads are used up by the job.
+
+It returns the job, with `kind: "animation"` and `frames: [{ "name", "size" }, …]`. Track, download, redo and delete it like any other job. The result is named `<first frame>-animated.<ext>`, and `info` has `{ frames, width, height, durationMs, loop }`.
+
+- `400`: fewer than 2 frames, or more than `animationMaxFrames`.
+- `415`: a frame isn't an image.
+- `404`: an unknown or already used upload id.
+- `409`: an upload still has parts to send. Nothing is used up; send them and try again.
+
+A refused request stores nothing, and chunked uploads stay available for another try.
+
+## Subtitles
+
+`POST /api/subtitles` makes one job for a video or audio file. By default it **listens to the speech** (whisper.cpp) and returns a subtitle file with times and text: `talk.vi.srt`, ready for YouTube Studio (Subtitles → Upload file → With timing). It can also put the subtitles into the video instead.
+
+Send the file either way:
+
+- **Multipart:** `multipart/form-data` with `file` (the video or audio), `options` (a JSON string), optionally `webhook`, and optionally `subtitles`: an `.srt` or `.vtt` file (up to 4 MB) to use **instead of speech recognition**.
+  ```bash
+  # Speech → Vietnamese subtitles
+  curl -u "$AUTH_USERNAME:$AUTH_PASSWORD" -F file=@talk.mov -F 'options={"subtitles":{"language":"vi"}}' localhost:4747/api/subtitles
+  # Your own subtitles, drawn into the picture
+  curl -u "$AUTH_USERNAME:$AUTH_PASSWORD" -F file=@talk.mov -F subtitles=@talk.srt -F 'options={"subtitles":{"embed":"burn"}}' localhost:4747/api/subtitles
+  ```
+- **Chunked** (big videos, object storage): upload the file with [chunked uploads](#chunked-uploads) but **don't complete it**. Then send JSON `{ "upload": "<uploadId>", "options": { "subtitles": { … } }, "webhook": "https://…" }`. Put your own subtitles in `options.subtitles.text` as SRT or WebVTT text.
+
+It returns the job with `kind: "subtitles"`. Track, download, redo and delete it like any other job.
+
+- **Result:** with `embed: "none"` a subtitle file named `<name>.<language>.srt` (or `.vtt`). With `track` or `burn`, the video named `<name>-subtitled.<ext>`: `track` keeps MP4/MOV/WebM/MKV (other containers become MKV); `burn` makes an MP4.
+- **Progress** comes in stages: `stage` is `model` (downloading the speech model, the first time only), `transcribe`, then `embed`. `progress` is 0–1 **within** the stage.
+- **`info`** has `{ cues, language, spokenLanguage, model, duration, embed, words }`. `language` is the language of the subtitles (`en` when translated); `model` is `null` when no speech recognition ran.
+- **`GET /api/jobs/:id/subtitles?format=srt|vtt`** returns the subtitles whatever the output (also for `track` and `burn`). Add `&download=1` for an attachment.
+- **Redo** (`POST /api/jobs/:id/retry` with `{ "options": { "subtitles": { … } } }`) reuses the subtitles already made, so switching between SRT, VTT, track and burn-in is quick. Speech recognition runs again only when `language`, `translate` or `model` changes. To **edit**, send the corrected text as `options.subtitles.text`; later redos keep your version.
+- `options.subtitles.text` is not echoed back in job responses.
+
+Errors, before anything is stored:
+
+- `415`: the file isn't video or audio, or `subtitles` isn't an `.srt`/`.vtt` under 4 MB.
+- `400`: the subtitle text has no cues; `track`/`burn` for an audio file; no speech recognition on this server and no subtitles given; `burn` without libass.
+- `404`: unknown upload id. `409`: the upload still has parts to send.
 
 ## Jobs
 
@@ -163,7 +219,7 @@ const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers
 
 ## Options
 
-The same objects are used by the web UI and the API. The CLI flags map onto them. In `complete`/`POST /api/jobs` send `{ video?, image?, audio? }`; only the one matching the file's kind is used.
+The same objects are used by the web UI and the API. The CLI flags map onto them. In `complete`/`POST /api/jobs` send `{ video?, image?, audio?, pdf? }`; only the one matching the file's kind is used. `POST /api/animations` uses `animation`, `POST /api/subtitles` uses `subtitles`.
 
 ```jsonc
 {
@@ -194,6 +250,24 @@ The same objects are used by the web UI and the API. The CLI flags map onto them
   "pdf": {
     "quality": "ebook",      // screen (72 dpi) | ebook (150) | printer (300) | prepress
     "grayscale": false
+  },
+  "subtitles": {
+    "language": "auto",      // spoken language: auto | vi | en | ja … (ISO 639-1)
+    "translate": false,      // English subtitles whatever the spoken language (not with large-v3-turbo)
+    "model": "small",        // tiny | base | small | medium | large-v3-turbo (default: WHISPER_MODEL)
+    "format": "srt",         // srt | vtt, when embed = none
+    "embed": "none",         // none (a subtitle file) | track (selectable, no re-encode) | burn (drawn into the picture)
+    "fontSize": "medium",    // small | medium | large, for burn
+    "text": "1\n00:00:01,000 --> …"  // optional: SRT/WebVTT to use instead of speech recognition
+  },
+  "animation": {
+    "format": "gif",         // gif | webp | mp4
+    "delay": 500,            // ms per frame (20–60000), or an array with one value per frame
+    "loop": 0,               // times to play; 0 = forever (not for mp4)
+    "maxDim": 800,           // long edge of the canvas (the first frame's shape); 0 = up to 4096
+    "fit": "contain",        // contain (add borders) | cover (crop) for frames of another shape
+    "background": "#ffffff", // border colour, and what shows through transparency
+    "quality": 80            // 1–100: GIF colours, WebP quality, MP4 CRF
   }
 }
 ```
@@ -204,7 +278,7 @@ Omitted fields take the defaults shown.
 
 | Code | When |
 |---|---|
-| `400` | Bad input: missing name/size, part number out of range, wrong part length, invalid webhook URL |
+| `400` | Bad input: missing name/size, part number out of range, wrong part length, invalid webhook URL, too few or too many animation frames |
 | `401` | Login required (see [Authentication](#authentication)) |
 | `404` | Unknown upload or job (or already deleted/expired); result not ready yet |
 | `409` | Missing parts on complete; part sent to the wrong place for this storage mode |

@@ -139,6 +139,83 @@ test('animated GIFs stay animated even when the format asked for can\'t animate'
   }
 });
 
+test('animate: frames in natural order to GIF, WebP and MP4', async () => {
+  // shot-10 must come after shot-2: names are sorted by their numbers, not character by character.
+  for (const [n, colour] of [[1, 'red'], [2, 'lime'], [10, 'blue']]) {
+    await gen(`shots/shot-${n}.png`, ['-f', 'lavfi', '-i', `color=c=${colour}:size=320x200`, '-frames:v', '1']);
+  }
+  const sharp = require('sharp');
+
+  const gif = JSON.parse((await cli('animate', 'shots', '--delay', '200', '--json', '-q')).stdout);
+  assert.equal(gif.ok, true);
+  const r = gif.results[0];
+  assert.deepEqual(r.inputs.map((f) => path.basename(f)), ['shot-1.png', 'shot-2.png', 'shot-10.png']);
+  assert.equal(path.basename(r.output), 'shot-1-animated.gif');
+  const meta = await sharp(r.output, { animated: true }).metadata();
+  assert.equal(meta.pages, 3);
+  assert.deepEqual(meta.delay, [200, 200, 200]);
+  // The last frame is blue: the order made it into the file.
+  const last = await sharp(r.output, { page: 2 }).raw().toBuffer();
+  assert.ok(last[2] > 200 && last[0] < 50, 'third frame is blue');
+
+  const webp = JSON.parse((await cli('animate', 'shots', '--format', 'webp', '--fps', '5', '-o', 'out/', '--json', '-q')).stdout).results[0];
+  assert.equal(webp.output, path.join(tmp, 'out', 'shot-1-animated.webp'));
+  assert.deepEqual((await sharp(webp.output, { animated: true }).metadata()).delay, [200, 200, 200]);
+
+  const mp4 = JSON.parse((await cli('animate', 'shots/shot-1.png', 'shots/shot-2.png', '--format', 'mp4', '--max-dim', '101', '-o', 'clip.mp4', '--json', '-q')).stdout).results[0];
+  assert.equal(mp4.output, path.join(tmp, 'clip.mp4'));
+  assert.equal(mp4.info.width % 2, 0, 'H.264 needs even sizes');
+
+  assert.equal((await cli('animate', 'shots', '-q')).code, 2, 'refuses to overwrite');
+  assert.equal((await cli('animate', 'shots', '--overwrite', '-q')).code, 0);
+});
+
+test('animate: usage errors', async () => {
+  for (const args of [['shots/shot-1.png'], ['shots', '--delay', '100', '--fps', '5'], ['shots', '--format', 'avi'], ['shots', '--loop', '-1'], ['shots', '--background', 'red']]) {
+    const { code, stderr } = await cli('animate', ...args);
+    assert.equal(code, 2, args.join(' '));
+    assert.match(stderr, /^compress-media: /);
+  }
+});
+
+test('subtitles: your own file as a track or WebVTT, next to the input or in -o', async () => {
+  fs.writeFileSync(path.join(tmp, 'clip.srt'), '1\n00:00:00,200 --> 00:00:01,500\nXin chào\n');
+  const track = JSON.parse((await cli('subtitles', 'clip.mov', '--srt', 'clip.srt', '--embed', 'track', '--lang', 'vi', '--json', '-q')).stdout);
+  assert.equal(track.ok, true, track.results[0].error);
+  const r = track.results[0];
+  assert.equal(r.output, path.join(tmp, 'clip-subtitled.mov'));
+  assert.deepEqual([r.kind, r.info.cues, r.info.language, r.info.embed], ['subtitles', 1, 'vi', 'track']);
+  assert.equal(r.options.text, undefined, 'the subtitle text is not repeated in the report');
+
+  const vtt = JSON.parse((await cli('subtitles', 'clip.mov', '--srt', 'clip.srt', '--format', 'vtt', '-o', 'subs', '--json', '-q')).stdout).results[0];
+  assert.equal(vtt.output, path.join(tmp, 'subs', 'clip.vtt'));
+  assert.match(fs.readFileSync(vtt.output, 'utf8'), /^WEBVTT\n\n00:00:00\.200 --> 00:00:01\.500\nXin chào\n/);
+  assert.equal((await cli('subtitles', 'clip.mov', '--srt', 'clip.srt', '--format', 'vtt', '-o', 'subs', '-q')).code, 1, 'refuses to overwrite');
+  // clip.mov + clip.srt → clip.srt would replace the user's own file, even with --overwrite.
+  const same = await cli('subtitles', 'clip.mov', '--srt', 'clip.srt', '--overwrite', '--json', '-q');
+  assert.equal(same.code, 1);
+  assert.match(JSON.parse(same.stdout).results[0].error, /would replace clip\.srt/);
+  assert.match(fs.readFileSync(path.join(tmp, 'clip.srt'), 'utf8'), /Xin chào/, 'the user\'s file is untouched');
+
+  const info = JSON.parse((await cli('info', '--json')).stdout);
+  assert.ok('whisper' in info && 'burnSubtitles' in info);
+  assert.ok(info.subtitleModels.some((m) => m.name === 'large-v3-turbo'));
+  assert.equal(info.subtitleModel, 'small');
+});
+
+test('subtitles: usage errors', async () => {
+  for (const args of [[], ['voice.wav', '--embed', 'sideways'], ['clip.mov', '--srt', 'missing.srt'], ['clip.mov', 'voice.wav', '--srt', 'clip.srt'],
+    ['album/a.png'], ['clip.mov', '--lang', 'Vietnamese'], ['clip.mov', '--model', 'huge']]) {
+    const { code, stderr } = await cli('subtitles', ...args);
+    assert.equal(code, 2, args.join(' '));
+    assert.match(stderr, /^compress-media: /);
+  }
+  // Audio has no picture to put subtitles on: that file fails (exit 1), with a reason.
+  const { code, stdout } = await cli('subtitles', 'voice.wav', '--srt', 'clip.srt', '--embed', 'track', '--json', '-q');
+  assert.equal(code, 1);
+  assert.match(JSON.parse(stdout).results[0].error, /only be added to a video/);
+});
+
 test('video option validation', async () => {
   for (const args of [['--codec', 'vp9'], ['--video-format', 'webm', '--codec', 'h264'], ['--start', 'soon'], ['--start', '5', '--end', '2']]) {
     const { code, stderr } = await cli('clip.mov', ...args);

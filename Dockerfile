@@ -16,23 +16,29 @@ FROM node:22-alpine
 # Ghostscript (AGPL-3.0) powers PDF compression. Build with --build-arg GHOSTSCRIPT=false to leave it
 # out; the PDF tab then disappears and everything else works. See THIRD_PARTY_NOTICES.md.
 ARG GHOSTSCRIPT=true
+# whisper.cpp (MIT) turns speech into subtitles; its models are downloaded on first use into
+# /data/models, not shipped. --build-arg WHISPER=false leaves it out (own .srt/.vtt files still work).
+ARG WHISPER=true
 LABEL org.opencontainers.image.title="Compress Media" \
-      org.opencontainers.image.description="Self-hosted video, image and audio compressor — web UI, HTTP API and CLI (ffmpeg + sharp)" \
+      org.opencontainers.image.description="Self-hosted video, image, audio and PDF compressor with a GIF maker and subtitles — web UI, HTTP API and CLI" \
       org.opencontainers.image.vendor="RunSnip" \
       org.opencontainers.image.url="https://runsnip.com" \
       org.opencontainers.image.source="https://github.com/material-atomic/compress-media" \
-      org.opencontainers.image.licenses="MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND AGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0"
+      org.opencontainers.image.licenses="MIT AND GPL-2.0-or-later AND LGPL-3.0-or-later AND AGPL-3.0-or-later AND Apache-2.0 AND MPL-2.0 AND Bitstream-Vera"
 # ffmpeg (GPL) does the video/audio work, libheif-tools (LGPL) provides `heif-dec` for HEIC photos,
 # tini reaps child processes. All are run as separate programs, never linked into the app.
-RUN apk add --no-cache ffmpeg libheif-tools tini \
- && if [ "$GHOSTSCRIPT" = "true" ]; then apk add --no-cache ghostscript; fi
+# DejaVu fonts (with fontconfig) let burned-in subtitles draw Vietnamese and other accented text.
+RUN apk add --no-cache ffmpeg libheif-tools tini fontconfig font-dejavu \
+ && if [ "$GHOSTSCRIPT" = "true" ]; then apk add --no-cache ghostscript; fi \
+ && if [ "$WHISPER" = "true" ]; then apk add --no-cache whisper.cpp; fi
 
 ENV NODE_ENV=production \
     FFMPEG_PATH=/usr/bin/ffmpeg \
     FFPROBE_PATH=/usr/bin/ffprobe \
     HOST=0.0.0.0 \
     PORT=4747 \
-    WORK_DIR=/data
+    WORK_DIR=/data \
+    WHISPER_MODELS_DIR=/data/models
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules

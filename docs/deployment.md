@@ -22,6 +22,7 @@ npm start                       # http://localhost:4747
 - On Linux, install `libheif-examples` (Debian/Ubuntu) or `libheif-tools` (Alpine/Fedora) for HEIC.
 - On Linux ARM, use the distribution's ffmpeg: `FFMPEG_PATH=/usr/bin/ffmpeg FFPROBE_PATH=/usr/bin/ffprobe npm start`.
 - Windows x64 works too. For HEIC or Windows on ARM, use Docker.
+- For subtitles from speech, install whisper.cpp: `brew install whisper-cpp` (macOS), your distribution's `whisper.cpp` package or a source build (Linux), a release build (Windows), or point `WHISPER_PATH` at it. Models are downloaded on first use; see [configuration.md → Subtitles](configuration.md#subtitles-speech-recognition).
 
 To keep it running in the background on macOS, run `npm start` in a terminal tab, or use a process manager such as `pm2 start server.js --name compress-media`.
 
@@ -50,12 +51,13 @@ docker run -d --name compress-media --restart unless-stopped \
 ```
 
 - `-p 127.0.0.1:4747:4747` keeps it private to this machine. Use `-p 4747:4747` only on a trusted network or behind a proxy.
-- `/data` holds uploads and results. Give it room for your largest video plus its output.
+- `/data` holds uploads and results. Give it room for your largest video plus its output. It also keeps the speech models for subtitles in `/data/models` (downloaded once, 75 MB – 1.5 GB each), so keep it on a named volume.
 - Pass settings with `-e`, e.g. `-e JOB_TTL_HOURS=1 -e MAX_UPLOAD_MB=4096`. The full list is in [configuration.md](configuration.md).
 - Update with `docker pull runsnip/compress-media && docker rm -f compress-media`, then run the command above again.
 - Health check: `GET /api/health`. The image has a `HEALTHCHECK` built in.
 - Login: `docker logs compress-media | grep Login` shows the generated password. Set `-e AUTH_USERNAME=… -e AUTH_PASSWORD=…` to choose your own.
 - **Without Ghostscript (AGPL):** use the `-nopdf` tags (`runsnip/compress-media:latest-nopdf`, `2.0.0-nopdf`, …), or build with `--build-arg GHOSTSCRIPT=false`. PDF compression is then unavailable, and everything else works. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+- **Without whisper.cpp:** build with `--build-arg WHISPER=false`. Subtitles then only use the user's own `.srt`/`.vtt` files. For servers without internet access, keep whisper.cpp and set `WHISPER_DOWNLOAD=false`, then copy the `ggml-*.bin` models into `/data/models`.
 
 ### GPU encoding in Docker
 

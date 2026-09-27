@@ -27,6 +27,7 @@ const { createStore } = require('./lib/store');
 const { createJobs, publicJob, ACTIVE } = require('./lib/jobs');
 const { validateWebhook } = require('./lib/webhook');
 const { loadAuthConfig, setupAuth } = require('./lib/auth');
+const subtitles = require('./lib/subtitles');
 
 // ---------------------------------------------------------------------------
 // Config (all overridable through environment variables)
@@ -39,6 +40,8 @@ const JOB_TTL_MS = (Number(process.env.JOB_TTL_HOURS) || 3) * 60 * 60 * 1000;
 const MAX_UPLOAD_BYTES = (Number(process.env.MAX_UPLOAD_MB) || 0) * 1024 * 1024; // 0 = unlimited
 const MEDIA_CONCURRENCY = Number(process.env.MEDIA_CONCURRENCY) || 1;
 const IMAGE_CONCURRENCY = Number(process.env.IMAGE_CONCURRENCY) || 3;
+// Speech models are big (75 MB–1.5 GB) and kept across restarts, next to (not inside) uploads/outputs.
+subtitles.setModelsDir(path.join(WORK_DIR, 'models'));
 
 // Chunked uploads: the browser sends parts (several in parallel) instead of one huge request, which
 // proxies (e.g. Cloudflare's 100 MB body limit) and load balancers can't handle. The defaults follow
@@ -94,7 +97,7 @@ const app = express();
 // Behind a reverse proxy, TRUST_PROXY (e.g. "1" or "loopback") makes req.ip the real client address,
 // which the login rate limit relies on. See Express "trust proxy".
 if (process.env.TRUST_PROXY) app.set('trust proxy', /^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY);
-app.use(express.json());
+app.use(express.json({ limit: '4mb' })); // room for a long subtitle file in `options.subtitles.text`
 app.use(express.static(path.join(__dirname, 'public')));
 // Mediabunny (WebCodecs muxing/demuxing) for in-browser compression, loaded by the page on demand.
 const mediabunnyBundle = path.join(path.dirname(require.resolve('mediabunny')), 'mediabunny.min.mjs'); // …/dist/bundles/
@@ -144,6 +147,9 @@ app.get('/api/config', (_req, res) => {
     jobTtlMs: JOB_TTL_MS,
     storage: storage.kind,
     queue: store.kind,
+    animationMaxFrames: MAX_FRAMES,
+    subtitleModels: subtitles.listModels(),
+    subtitleModel: subtitles.defaultModel(),
   });
 });
 
@@ -277,23 +283,32 @@ app.post('/api/uploads/:id/complete', async (req, res) => {
   if (!u) return res.status(404).json({ error: 'Upload not found' });
   const webhook = await webhookOrFail(req.body?.webhook, res);
   if (webhook === false) return;
-  let where;
+  const where = await finishChunked(u, res);
+  if (!where) return;
+  const job = await jobs.create({ kind: u.kind, name: u.name, ...where, inputSize: u.size, options: parseOptions(req.body?.options)[u.kind], webhook });
+  res.json(publicJob(job));
+});
+
+/**
+ * Checks that every part of an upload arrived, then assembles it. Sends the error response itself
+ * and returns undefined on failure.
+ */
+async function finishChunked(u, res) {
   try {
     const received = new Set(await receivedParts(u));
     const missing = [];
     for (let n = 1; n <= u.partCount; n++) if (!received.has(n)) missing.push(n);
     if (missing.length) {
-      return res.status(409).json({ error: `Missing parts: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '…' : ''}`, missing });
+      return void res.status(409).json({ error: `Missing parts: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '…' : ''}`, missing });
     }
-    where = await storage.finishUpload(u);
+    const where = await storage.finishUpload(u);
+    await store.deleteUpload(u.id);
+    return where;
   } catch (err) {
     console.error('finishUpload:', err);
-    return res.status(502).json({ error: `Storage error: ${err.message}` });
+    return void res.status(502).json({ error: `Storage error: ${err.message}` });
   }
-  await store.deleteUpload(u.id);
-  const job = await jobs.create({ kind: u.kind, name: u.name, ...where, inputSize: u.size, options: parseOptions(req.body?.options)[u.kind], webhook });
-  res.json(publicJob(job));
-});
+}
 
 app.delete('/api/uploads/:id', async (req, res) => {
   const u = await store.getUpload(req.params.id);
@@ -302,6 +317,167 @@ app.delete('/api/uploads/:id', async (req, res) => {
     await storage.abortUpload(u);
   }
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Animations: several still images → one animated GIF / WebP / MP4
+// ---------------------------------------------------------------------------
+
+const MAX_FRAMES = 1000;
+
+/**
+ * Two ways in:
+ *   JSON       { frames: [uploadId, …], options: { animation: {…} }, webhook? }
+ *              — each frame uploaded with the chunked API (POST /api/uploads … parts), not completed
+ *   multipart  fields `frames` (files, in order), `options` (JSON), `webhook`
+ */
+app.post('/api/animations', upload.array('frames', MAX_FRAMES), async (req, res) => {
+  const files = /** @type {Express.Multer.File[] | undefined} */ (req.files);
+  const cleanup = () => Promise.all((files || []).map((f) => removeFile(f.path)));
+  const webhook = await webhookOrFail(req.body?.webhook, res);
+  if (webhook === false) return void (await cleanup());
+  const options = parseOptions(req.body?.options).animation || {};
+
+  /** @type {Array<{ inputPath: string|null, inputKey: string|null, name: string, size: number }>} */
+  let inputs = [];
+  const tooFew = () => res.status(400).json({ error: 'An animation needs at least 2 images' });
+  if (files?.length) {
+    // Check every frame before storing any, so a refused request leaves nothing behind.
+    const names = files.map((f) => Buffer.from(f.originalname, 'latin1').toString('utf8'));
+    const bad = names.find((name, i) => detectKind(name, files[i].mimetype) !== 'image');
+    if (bad !== undefined || files.length < 2) {
+      await cleanup();
+      return bad !== undefined ? res.status(415).json({ error: `Not an image: ${bad}` }) : tooFew();
+    }
+    for (const [i, f] of files.entries()) {
+      inputs.push({ ...(await storage.putInput({ id: crypto.randomUUID(), inputPath: f.path })), name: names[i], size: f.size });
+    }
+  } else {
+    const ids = Array.isArray(req.body?.frames) ? req.body.frames.map(String) : [];
+    if (ids.length < 2) return tooFew(); // before any upload is used up
+    if (ids.length > MAX_FRAMES) return res.status(400).json({ error: `At most ${MAX_FRAMES} frames` });
+    const ups = await Promise.all(ids.map((id) => store.getUpload(id)));
+    const missing = ids.filter((_, i) => !ups[i]);
+    if (missing.length) return res.status(404).json({ error: `Upload not found: ${missing.slice(0, 5).join(', ')}` });
+    const notImage = ups.find((u) => u.kind !== 'image');
+    if (notImage) return res.status(415).json({ error: `Not an image: ${notImage.name}` });
+    try {
+      for (const u of ups) {
+        const got = new Set(await receivedParts(u));
+        for (let n = 1; n <= u.partCount; n++) {
+          if (!got.has(n)) return res.status(409).json({ error: `Upload ${u.id} is missing part ${n}` });
+        }
+      }
+      for (const u of ups) {
+        inputs.push({ ...(await storage.finishUpload(u)), name: u.name, size: u.size });
+        await store.deleteUpload(u.id);
+      }
+    } catch (err) {
+      console.error('animation frames:', err);
+      return res.status(502).json({ error: `Storage error: ${err.message}` });
+    }
+  }
+  const job = await jobs.create({
+    kind: 'animation',
+    name: `${inputs[0].name} +${inputs.length - 1}`,
+    inputs,
+    inputSize: inputs.reduce((sum, i) => sum + i.size, 0),
+    options,
+    webhook,
+  });
+  res.json(publicJob(job));
+});
+
+// ---------------------------------------------------------------------------
+// Subtitles: speech → SRT/WebVTT (whisper.cpp), or a subtitle file → a video
+// ---------------------------------------------------------------------------
+
+const SUBTITLE_EXT = /\.(srt|vtt)$/i;
+
+/** Refuses what this server can't do before anything is stored. Returns an error message or null. */
+function subtitleProblem(kind, name, o) {
+  if (kind !== 'video' && kind !== 'audio') return { status: 415, error: `Not a video or audio file: ${name}` };
+  if (o.text != null && String(o.text).trim()) {
+    try {
+      subtitles.parseSubtitles(String(o.text));
+    } catch (err) {
+      return { status: 400, error: err.message };
+    }
+  }
+  // A ROLE=web server hands the work to workers, which may have tools this machine lacks.
+  const local = process.env.ROLE !== 'web';
+  if (local && !(o.text && String(o.text).trim()) && !caps.whisper) {
+    return { status: 400, error: 'Speech recognition is not installed on this server (whisper.cpp); send your own subtitle file instead' };
+  }
+  if (local && o.embed === 'burn' && !caps.burnSubtitles) return { status: 400, error: 'This server can\'t burn in subtitles (ffmpeg without libass); use embed "track"' };
+  if (o.embed && o.embed !== 'none' && kind !== 'video') return { status: 400, error: 'Subtitles can only be added to a video' };
+  return null;
+}
+
+/**
+ * Two ways in:
+ *   JSON       { upload: uploadId, options: { subtitles: {…} }, webhook? } — a chunked upload, not completed
+ *   multipart  fields `file` (video/audio), optional `subtitles` (.srt/.vtt to use instead of transcribing),
+ *              `options` (JSON), `webhook`
+ */
+app.post('/api/subtitles', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'subtitles', maxCount: 1 }]), async (req, res) => {
+  const fields = /** @type {Record<string, Express.Multer.File[]> | undefined} */ (req.files);
+  const file = fields?.file?.[0];
+  const subFile = fields?.subtitles?.[0];
+  const cleanup = () => Promise.all([file, subFile].map((f) => removeFile(f?.path)));
+  const options = { ...(parseOptions(req.body?.options).subtitles || {}) };
+
+  if (subFile) {
+    const subName = Buffer.from(subFile.originalname, 'latin1').toString('utf8');
+    if (!SUBTITLE_EXT.test(subName) || subFile.size > 4 * MiB) {
+      await cleanup();
+      return res.status(415).json({ error: `Subtitles must be an .srt or .vtt file under 4 MB: ${subName}` });
+    }
+    options.text = await fsp.readFile(subFile.path, 'utf8');
+    await removeFile(subFile.path);
+  }
+  const webhook = await webhookOrFail(req.body?.webhook, res);
+  if (webhook === false) return void (await cleanup());
+
+  let where;
+  let name;
+  let size;
+  let kind;
+  if (file) {
+    name = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    kind = detectKind(name, file.mimetype);
+    const problem = subtitleProblem(kind, name, options);
+    if (problem) {
+      await cleanup();
+      return res.status(problem.status).json({ error: problem.error });
+    }
+    where = await storage.putInput({ id: crypto.randomUUID(), inputPath: file.path });
+    size = file.size;
+  } else {
+    if (!req.body?.upload) return res.status(400).json({ error: 'Send a file, or the id of a chunked upload as "upload"' });
+    const u = await store.getUpload(String(req.body.upload));
+    if (!u) return res.status(404).json({ error: 'Upload not found' });
+    const problem = subtitleProblem(u.kind, u.name, options);
+    if (problem) return res.status(problem.status).json({ error: problem.error });
+    where = await finishChunked(u, res);
+    if (!where) return;
+    ({ name, size, kind } = u);
+  }
+  const job = await jobs.create({ kind: 'subtitles', name, ...where, inputSize: size, options, webhook });
+  res.json(publicJob(job));
+});
+
+// The subtitles of a finished subtitles job, whatever its output (a file, a track or burned in).
+app.get('/api/jobs/:id/subtitles', async (req, res) => {
+  const job = await jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.kind !== 'subtitles' || !job.transcript) return res.status(404).json({ error: 'No subtitles for this job (yet)' });
+  const format = req.query.format === 'vtt' ? 'vtt' : 'srt';
+  const text = format === 'vtt' ? subtitles.formatSubtitles(subtitles.parseSubtitles(job.transcript), 'vtt') : job.transcript;
+  const lang = job.info?.language ? `.${job.info.language}` : '';
+  res.type(format === 'vtt' ? 'text/vtt' : 'application/x-subrip');
+  res.setHeader('Content-Disposition', contentDisposition(req.query.download ? 'attachment' : 'inline', `${path.parse(job.name).name}${lang}.${format}`));
+  res.send(text);
 });
 
 // ---------------------------------------------------------------------------
@@ -415,8 +591,9 @@ app.get('/api/jobs/:id/file', async (req, res) => {
 });
 
 app.get('/api/jobs/:id/original', async (req, res) => {
-  const job = await jobs.get(req.params.id);
+  let job = await jobs.get(req.params.id);
   if (!job) return res.status(404).send('Job not found');
+  if (job.inputs) job = { ...job, ...job.inputs[0] }; // animations: the first frame
   const url = await storage.inputUrl(job);
   if (url) return res.redirect(302, url);
   res.sendFile(job.inputPath);
@@ -425,6 +602,10 @@ app.get('/api/jobs/:id/original', async (req, res) => {
 app.use((err, _req, res, _next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ error: `File is larger than the ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit` });
+  }
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    // More `frames` than an animation may have, or a file in an unknown field.
+    return res.status(400).json({ error: err.field === 'frames' ? `At most ${MAX_FRAMES} frames` : `Unexpected file field: ${err.field}` });
   }
   console.error(err);
   res.status(500).json({ error: err.message || 'Internal error' });

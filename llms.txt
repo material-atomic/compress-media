@@ -1,6 +1,6 @@
 # Compress Media
 
-> Self-hosted compressor for video, images, audio and PDF (ffmpeg + sharp + Ghostscript), with a drag-and-drop web UI, a CLI (`compress-media`) and a JSON HTTP API. It supports login, chunked resumable uploads (optionally straight to S3-compatible storage), trimming, GIF/WebM/AV1 output, GPU encoding, ZIP downloads, SSE and signed webhooks, an optional in-browser mode (WebCodecs), and a Redis queue with separate workers. Docker image: runsnip/compress-media (linux/amd64, linux/arm64). MIT licensed; bundled binaries keep their own licenses.
+> Self-hosted compressor for video, images, audio and PDF (ffmpeg + sharp + Ghostscript), with subtitles from speech (whisper.cpp), with a drag-and-drop web UI, a CLI (`compress-media`) and a JSON HTTP API. It supports login, chunked resumable uploads (optionally straight to S3-compatible storage), trimming, GIF/WebM/AV1 output, animations from still images (GIF/WebP/MP4), subtitles (speech → SRT/WebVTT, or subtitles added to a video as a track or burned in; models downloaded on first use), GPU encoding, ZIP downloads, SSE and signed webhooks, an optional in-browser mode (WebCodecs), and a Redis queue with separate workers. Docker image: runsnip/compress-media (linux/amd64, linux/arm64). MIT licensed; bundled binaries keep their own licenses.
 
 Which interface to use:
 
@@ -11,22 +11,23 @@ Which interface to use:
 ## Using it
 
 - [README](README.md): overview, quick start for every interface, platform support, recommended settings
-- [CLI reference](docs/cli.md): commands (compress, probe, info, serve), every flag, JSON report, exit codes
-- [HTTP API reference](docs/api.md): endpoints, chunked upload protocol (local vs direct-to-S3), job lifecycle, option objects, status codes
+- [CLI reference](docs/cli.md): commands (compress, probe, animate, subtitles, info, serve), every flag, JSON report, exit codes
+- [HTTP API reference](docs/api.md): endpoints, chunked upload protocol (local vs direct-to-S3), job lifecycle, animations, subtitles, option objects, status codes
 - [Example API clients](examples/): `compress.sh` (bash + curl + jq) and `compress.mjs` (Node.js 20+)
 
 ## Running it
 
-- [Configuration](docs/configuration.md): every environment variable (server, uploads, storage, binaries)
+- [Configuration](docs/configuration.md): every environment variable (server, subtitles/whisper models, uploads, storage, binaries)
 - [Deployment](docs/deployment.md): native, Docker, Compose, reverse proxy (Caddy/nginx), object storage per provider, CORS, lifecycle, IAM, scaling limits
 - [Security](SECURITY.md): login, deployment model, reporting vulnerabilities
-- [Third-party notices](THIRD_PARTY_NOTICES.md): FFmpeg (GPL), Ghostscript (AGPL), libvips (LGPL), Mediabunny (MPL) and what redistribution requires
+- [Changelog](CHANGELOG.md): what changed in each release (features, fixes, breaking changes)
+- [Third-party notices](THIRD_PARTY_NOTICES.md): FFmpeg (GPL), Ghostscript (AGPL), libvips (LGPL), Mediabunny (MPL), whisper.cpp and its models (MIT), DejaVu fonts and what redistribution requires
 
 ## Agent skills
 
-- [compress-media skill](skills/compress-media/SKILL.md): compress files for a user, choose settings from the goal, read the report, safety rules
+- [compress-media skill](skills/compress-media/SKILL.md): compress files for a user, turn images into an animation or make subtitles for a video, choose settings from the goal, read the report, safety rules
 - [compress-media reference](skills/compress-media/reference.md): full CLI flags, JSON fields, HTTP API with a CLI-flag → API-field table
-- [compress-media-deploy skill](skills/compress-media-deploy/SKILL.md): install, configure, expose, upgrade and troubleshoot a server
+- [compress-media-deploy skill](skills/compress-media-deploy/SKILL.md): install, configure, expose, upgrade and troubleshoot a server (incl. speech models for offline servers)
 
 ## Working on the code
 

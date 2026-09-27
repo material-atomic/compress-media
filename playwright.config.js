@@ -47,6 +47,8 @@ module.exports = defineConfig({
           AUTH_ENABLED: 'true',
           AUTH_USERNAME: process.env.E2E_USERNAME || 'e2e@example.com',
           AUTH_PASSWORD: process.env.E2E_PASSWORD || 'e2e-password',
+          // Speech models are big: share the CLI's cache rather than download them per run.
+          WHISPER_MODELS_DIR: process.env.WHISPER_MODELS_DIR || path.join(os.homedir(), '.cache', 'compress-media', 'models'),
         },
       },
 });

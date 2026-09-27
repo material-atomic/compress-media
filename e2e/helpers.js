@@ -21,7 +21,7 @@ const test = base.test.extend({
     const jobIds = new Set();
     page.on('response', async (res) => {
       // Jobs come from single-request uploads (POST /api/jobs) or chunked ones (…/complete).
-      if (res.request().method() !== 'POST' || !/\/api\/(jobs|uploads\/[^/]+\/complete)$/.test(res.url()) || !res.ok()) return;
+      if (res.request().method() !== 'POST' || !/\/api\/(jobs|animations|subtitles|uploads\/[^/]+\/complete)$/.test(res.url()) || !res.ok()) return;
       try { jobIds.add((await res.json()).id); } catch { /* routed/mocked response */ }
     });
     const errors = [];
