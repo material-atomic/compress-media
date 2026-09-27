@@ -129,12 +129,13 @@ test('PDF: presets shrink image-heavy documents', async (t) => {
 
 test('animated GIFs stay animated even when the format asked for can\'t animate', async () => {
   await run(ffmpeg, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=160x120:rate=10', '-t', '1', path.join(tmp, 'anim.gif')]);
+  // Read results into memory: on Windows libvips keeps files it opened locked, and cleanup fails (EBUSY).
   const sharp = require('sharp');
   for (const [format, ext] of [['avif', '.webp'], ['jpeg', '.gif'], ['png', '.gif'], ['webp', '.webp'], ['auto', '.gif']]) {
     const r = JSON.parse((await cli('anim.gif', '--image-format', format, `--suffix=-${format}`, '--json', '-q')).stdout).results[0];
     assert.equal(r.status, 'done', r.error);
     assert.equal(path.extname(r.output), ext, format);
-    assert.equal((await sharp(r.output, { animated: true }).metadata()).pages, 10, `${format}: all frames kept`);
+    assert.equal((await sharp(fs.readFileSync(r.output), { animated: true }).metadata()).pages, 10, `${format}: all frames kept`);
     if (['avif', 'jpeg', 'png'].includes(format)) assert.match(r.info.note, /can't be animated/);
   }
 });
@@ -151,16 +152,16 @@ test('animate: frames in natural order to GIF, WebP and MP4', async () => {
   const r = gif.results[0];
   assert.deepEqual(r.inputs.map((f) => path.basename(f)), ['shot-1.png', 'shot-2.png', 'shot-10.png']);
   assert.equal(path.basename(r.output), 'shot-1-animated.gif');
-  const meta = await sharp(r.output, { animated: true }).metadata();
+  const meta = await sharp(fs.readFileSync(r.output), { animated: true }).metadata();
   assert.equal(meta.pages, 3);
   assert.deepEqual(meta.delay, [200, 200, 200]);
   // The last frame is blue: the order made it into the file.
-  const last = await sharp(r.output, { page: 2 }).raw().toBuffer();
+  const last = await sharp(fs.readFileSync(r.output), { page: 2 }).raw().toBuffer();
   assert.ok(last[2] > 200 && last[0] < 50, 'third frame is blue');
 
   const webp = JSON.parse((await cli('animate', 'shots', '--format', 'webp', '--fps', '5', '-o', 'out/', '--json', '-q')).stdout).results[0];
   assert.equal(webp.output, path.join(tmp, 'out', 'shot-1-animated.webp'));
-  assert.deepEqual((await sharp(webp.output, { animated: true }).metadata()).delay, [200, 200, 200]);
+  assert.deepEqual((await sharp(fs.readFileSync(webp.output), { animated: true }).metadata()).delay, [200, 200, 200]);
 
   const mp4 = JSON.parse((await cli('animate', 'shots/shot-1.png', 'shots/shot-2.png', '--format', 'mp4', '--max-dim', '101', '-o', 'clip.mp4', '--json', '-q')).stdout).results[0];
   assert.equal(mp4.output, path.join(tmp, 'clip.mp4'));

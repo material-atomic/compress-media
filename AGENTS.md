@@ -124,7 +124,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up --build   # 
   - On macOS, `os.tmpdir()` is behind the `/var` → `/private/var` symlink. Use `fs.realpathSync` when you compare paths.
 - **npm scripts must work in cmd.exe**: no shell globs, so use `node --test` rather than `node --test test/*.js`.
 - **S3 providers differ**:
-  - SeaweedFS ignores `response-content-disposition`, so `Content-Disposition` is also stored on the object.
+  - SeaweedFS ignores `response-content-disposition`, and drops the stored `Content-Disposition` of multipart uploads (files over 5 MB). Output keys therefore end in the download name itself: `outputs/<job>/<run>/<name>`.
   - Some stores keep both copies when a part number is re-uploaded, which breaks CompleteMultipartUpload. Don't design flows that re-send a part that already succeeded.
   - Browsers need bucket CORS for PUT (`S3_SETUP_CORS`, startup check with `PUBLIC_URL`).
 - **Downloads may redirect cross-origin** (to a presigned bucket URL). "Download all" is therefore one server-built ZIP (`/api/jobs/zip`), not many downloads, which cancelled each other.
