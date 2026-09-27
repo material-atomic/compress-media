@@ -17,7 +17,7 @@ A self-hosted compressor for **videos, images and audio**. It comes with a drag-
 
 ## Contents
 
-[Features](#features) · [Ways to use it](#ways-to-use-it) · [Quick start](#quick-start) · [Web UI](#web-ui) · [CLI](#cli) · [HTTP API](#http-api) · [Configuration](#configuration) · [Object storage](#object-storage) · [Platforms](#platform-support) · [AI agents](#use-with-ai-agents) · [Security](#security) · [Development](#development) · [License](#license)
+[Features](#features) · [Coming in 2.0](#coming-in-20) · [Ways to use it](#ways-to-use-it) · [Quick start](#quick-start) · [Web UI](#web-ui) · [CLI](#cli) · [HTTP API](#http-api) · [Configuration](#configuration) · [Object storage](#object-storage) · [Platforms](#platform-support) · [AI agents](#use-with-ai-agents) · [Security](#security) · [Development](#development) · [License](#license)
 
 ## Features
 
@@ -44,6 +44,29 @@ A self-hosted compressor for **videos, images and audio**. It comes with a drag-
   - Re-compress with new settings without re-uploading.
   - Cancel, and download all.
 - **Web UI** in English and Vietnamese, with light and dark themes. It works on phones.
+
+## Coming in 2.0
+
+In development on `main`; not in a release yet.
+
+- **Built-in login, on by default.** Set the username (or email) and password with `AUTH_USERNAME` / `AUTH_PASSWORD`, or turn it off with `AUTH_ENABLED=false`. Scripts sign in with HTTP Basic or an API token.
+- **More video output**
+  - Trim to a start and end time.
+  - **AV1** in MP4.
+  - **WebM** (VP9 or AV1 + Opus).
+  - **Animated GIF** from any video.
+- **Better size targeting.** Two-pass encoding for "target size in MB", so files land closer to the limit.
+- **GPU encoding on Linux and Windows**: NVIDIA NVENC, Intel Quick Sync, VA-API and AMD AMF, detected automatically. VideoToolbox on macOS stays.
+- **PDF compression** with presets from "smallest" to "print quality" (Ghostscript).
+- **Compress in the browser.** An optional mode where videos, audio and images are compressed on the user's own device with WebCodecs, so nothing is uploaded at all.
+- **Download everything as one ZIP.**
+- **For integrations**
+  - Live progress over Server-Sent Events.
+  - Webhooks signed with HMAC when a job finishes.
+  - Batch status for many jobs in one call.
+- **Scale out.** An optional Redis/BullMQ queue, so several web servers and separate workers (`compress-media worker`) share the load.
+
+**Upgrading from 1.x:** 2.0 turns login on by default. Existing scripts need credentials (or `AUTH_ENABLED=false`) after the update.
 
 ## Ways to use it
 

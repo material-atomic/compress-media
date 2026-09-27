@@ -17,7 +17,7 @@ Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện 
 
 ## Mục lục
 
-[Tính năng](#tính-năng) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
+[Tính năng](#tính-năng) · [Sắp có trong 2.0](#sắp-có-trong-20) · [Các cách dùng](#các-cách-dùng) · [Bắt đầu nhanh](#bắt-đầu-nhanh) · [Giao diện web](#giao-diện-web) · [CLI](#cli) · [HTTP API](#http-api) · [Cấu hình](#cấu-hình) · [Lưu trữ đối tượng](#lưu-trữ-đối-tượng-s3) · [Nền tảng](#nền-tảng-hỗ-trợ) · [AI agent](#dùng-với-ai-agent) · [Bảo mật](#bảo-mật) · [Phát triển](#phát-triển) · [Giấy phép](#giấy-phép)
 
 ## Tính năng
 
@@ -44,6 +44,29 @@ Công cụ tự host để nén **video, ảnh và âm thanh**. Có giao diện 
   - Nén lại với cài đặt khác mà không cần upload lại.
   - Hủy giữa chừng, tải tất cả một lần.
 - **Giao diện** tiếng Anh và tiếng Việt, có chế độ sáng và tối, dùng được trên điện thoại.
+
+## Sắp có trong 2.0
+
+Đang phát triển trên nhánh `main`, chưa có trong bản phát hành nào.
+
+- **Đăng nhập có sẵn, mặc định bật.** Đặt tên đăng nhập (hoặc email) và mật khẩu qua `AUTH_USERNAME` / `AUTH_PASSWORD`, hoặc tắt bằng `AUTH_ENABLED=false`. Script đăng nhập bằng HTTP Basic hoặc API token.
+- **Thêm định dạng video**
+  - Cắt đoạn theo thời điểm bắt đầu và kết thúc.
+  - **AV1** trong MP4.
+  - **WebM** (VP9 hoặc AV1 + Opus).
+  - **GIF động** từ bất kỳ video nào.
+- **Bám dung lượng mục tiêu tốt hơn.** Chế độ "Theo MB" mã hóa hai lượt, nên file ra sát giới hạn hơn.
+- **Nén bằng GPU trên Linux và Windows**: NVIDIA NVENC, Intel Quick Sync, VA-API, AMD AMF, tự nhận diện. VideoToolbox trên macOS vẫn giữ.
+- **Nén PDF** với các mức từ "nhỏ nhất" tới "chất lượng in" (Ghostscript).
+- **Nén ngay trên trình duyệt.** Một chế độ tùy chọn: video, âm thanh và ảnh được nén trên chính thiết bị người dùng bằng WebCodecs, hoàn toàn không upload.
+- **Tải tất cả thành một file ZIP.**
+- **Cho việc tích hợp**
+  - Tiến độ theo thời gian thực qua Server-Sent Events.
+  - Webhook có chữ ký HMAC khi job xong.
+  - Xem trạng thái nhiều job trong một lần gọi.
+- **Mở rộng quy mô.** Hàng đợi Redis/BullMQ tùy chọn, để nhiều web server và các worker riêng (`compress-media worker`) cùng chia tải.
+
+**Nâng cấp từ 1.x:** bản 2.0 bật đăng nhập mặc định. Các script đang dùng sẽ cần thông tin đăng nhập (hoặc đặt `AUTH_ENABLED=false`) sau khi cập nhật.
 
 ## Các cách dùng
 
