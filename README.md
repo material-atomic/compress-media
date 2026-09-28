@@ -61,6 +61,7 @@ Next up; not built yet, and details may change. AI features use small models tha
 - **Cut the silences.** Remove long pauses from talking videos automatically (jump cuts), using the same speech detection as subtitles.
 - **Watermark.** Put a logo or text on videos and images, with position and opacity.
 - **YouTube chapters.** Chapter timestamps and titles suggested from the subtitles by a small language model (Qwen2.5 0.5B–1.5B through llama.cpp), ready to paste into the video description.
+- **Subtitle editor with a timeline.** Open a video with its subtitles and check them against a waveform: drag a subtitle to move it, drag its edges to change when it starts and ends, split and merge lines, and set where burned-in text sits on the picture. Save the SRT/VTT or export the video straight away. Replaces today's text-box editor.
 - **Translate subtitles** into other languages, not only English (for example English → Vietnamese), with Opus-MT translation models or the same small language model.
 - **Join videos.** Put several clips together into one.
 - **Extract the audio** from a video as MP3, M4A or Opus.

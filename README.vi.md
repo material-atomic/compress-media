@@ -61,6 +61,7 @@ Sẽ làm tiếp theo; chưa có trong mã nguồn, chi tiết có thể thay đ
 - **Cắt khoảng lặng.** Tự bỏ các quãng ngừng dài trong video nói (jump cut), dùng chung bộ phát hiện giọng nói với tính năng phụ đề.
 - **Chèn watermark.** Đặt logo hoặc chữ lên video và ảnh, chọn được vị trí và độ mờ.
 - **Chương cho YouTube.** Gợi ý mốc và tên chương từ phụ đề bằng một mô hình ngôn ngữ nhỏ (Qwen2.5 0.5B–1.5B qua llama.cpp), dán thẳng vào phần mô tả video.
+- **Trình sửa phụ đề có timeline.** Mở video cùng file phụ đề và đối chiếu với dạng sóng âm thanh: kéo một câu để dời, kéo hai mép để đổi lúc bắt đầu và kết thúc, tách và gộp câu, chọn vị trí chữ khi in lên hình. Lưu lại file SRT/VTT hoặc xuất video ngay. Thay cho ô sửa chữ hiện tại.
 - **Dịch phụ đề** sang các ngôn ngữ khác ngoài tiếng Anh (ví dụ Anh → Việt), bằng model dịch Opus-MT hoặc chính mô hình ngôn ngữ nhỏ ở trên.
 - **Ghép video.** Nối nhiều đoạn thành một video.
 - **Tách âm thanh** khỏi video thành MP3, M4A hoặc Opus.
